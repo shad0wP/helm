@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Helm</title>
+  <link rel="stylesheet"
+    href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.10.0/dist/tabler-icons.min.css">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="panel-header">
+    <div class="header-top">
+      <span class="panel-title">
+        <i class="ti ti-steering-wheel" aria-hidden="true"></i> Helm
+      </span>
+      <div class="header-actions">
+        <button id="btn-start-all" class="hbtn start">Start all</button>
+        <button id="btn-stop-all" class="hbtn stop">Stop all</button>
+      </div>
+    </div>
+    <div class="status-bar">
+      <span class="status-dot" id="global-dot"></span>
+      <span class="status-text" id="global-text">Scanning…</span>
+    </div>
+  </header>
+
+  <div id="services-list"></div>
+
+  <footer class="panel-footer">
+    <button id="btn-scan" class="footer-btn">
+      <i class="ti ti-radar" aria-hidden="true"></i> Scan for services
+    </button>
+    <button id="btn-close" class="footer-btn" aria-label="Close">
+      <i class="ti ti-x" aria-hidden="true"></i>
+    </button>
+  </footer>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
