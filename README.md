@@ -1,8 +1,8 @@
 # Helm
 
-A native menu bar / system tray app for **macOS** and **Linux** (KDE / CachyOS / Arch) that
+A native menu bar / system tray app for **macOS** and **Linux** (KDE / Arch) that
 controls your local AI stack. Click the tray icon and a frameless popover slides open, listing
-every detected local AI service with an iOS-style toggle. Flip a toggle to start or stop a
+every detected local AI service. Flip a toggle to start or stop a
 service; the tray icon turns **green** (all running), **amber** (some running), or **grey**
 (all stopped) in real time.
 
@@ -41,7 +41,7 @@ third-party Go dependencies beyond Wails itself.
 
 ## Install
 
-### CachyOS / Arch (Linux)
+### Arch (Linux)
 
 ```bash
 # System dependencies
