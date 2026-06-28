@@ -9,10 +9,10 @@ platform: "linux"
 version: "0.1.0"
 section: "default"
 priority: "extra"
-maintainer: ${GIT_COMMITTER_NAME} <${GIT_COMMITTER_EMAIL}>
-description: "A helm application"
-vendor: "My Company"
-homepage: "https://wails.io"
+maintainer: shad0wP <202858710+shad0wP@users.noreply.github.com>
+description: "Helm — native menu bar / system tray controller for a local AI stack."
+vendor: "shad0wP"
+homepage: "https://github.com/shad0wP/helm"
 license: "MIT"
 release: "1"
 

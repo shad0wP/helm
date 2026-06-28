@@ -1,0 +1,94 @@
+name: Build Linux
+
+# Builds a native linux/amd64 binary (CGO + GTK4 + WebKitGTK 6.0) and attaches
+# the binary tarball plus distro packages (Arch / deb / rpm) to a GitHub release.
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag to attach the Linux artifacts to"
+        required: false
+        default: "v0.1.0"
+
+permissions:
+  contents: write
+
+jobs:
+  build-linux:
+    name: Build Linux (amd64)
+    runs-on: ubuntu-24.04
+    env:
+      VERSION: "0.1.0"
+      RELEASE_TAG: ${{ github.event.inputs.release_tag || 'v0.1.0' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies (GTK4 + WebKitGTK 6.0)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config \
+            libgtk-4-dev libwebkitgtk-6.0-dev
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          check-latest: true
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Wails v3 CLI
+        run: go install github.com/wailsapp/wails/v3/cmd/wails3@latest
+
+      - name: Environment check
+        run: wails3 doctor || true
+
+      - name: Build (native linux/amd64)
+        run: wails3 build
+
+      - name: Package
+        env:
+          GOARCH: amd64
+        run: |
+          set -euxo pipefail
+          test -f bin/helm
+          # Raw binary tarball (works on any distro with gtk4 + webkitgtk-6.0 installed)
+          tar -C bin -czf "bin/helm-${VERSION}-linux-amd64.tar.gz" helm
+          # Native distro packages via the bundled nfpm. Arch is ideal for CachyOS.
+          wails3 tool package -name helm -format archlinux -config ./build/linux/nfpm/nfpm.yaml -out ./bin
+          wails3 tool package -name helm -format deb       -config ./build/linux/nfpm/nfpm.yaml -out ./bin
+          wails3 tool package -name helm -format rpm       -config ./build/linux/nfpm/nfpm.yaml -out ./bin
+          ls -la bin
+
+      - name: Checksums
+        run: |
+          cd bin
+          shopt -s nullglob
+          files=( helm-*-linux-amd64.tar.gz *.pkg.tar.zst *.deb *.rpm )
+          sha256sum "${files[@]}" | tee SHA256SUMS-linux.txt
+
+      - name: Upload build artifacts (workflow)
+        uses: actions/upload-artifact@v4
+        with:
+          name: helm-linux-amd64
+          path: |
+            bin/helm-*-linux-amd64.tar.gz
+            bin/*.pkg.tar.zst
+            bin/*.deb
+            bin/*.rpm
+            bin/SHA256SUMS-linux.txt
+          if-no-files-found: error
+
+      - name: Attach to GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd bin
+          shopt -s nullglob
+          assets=( helm-*-linux-amd64.tar.gz *.pkg.tar.zst *.deb *.rpm SHA256SUMS-linux.txt )
+          gh release upload "$RELEASE_TAG" "${assets[@]}" --repo "${{ github.repository }}" --clobber
