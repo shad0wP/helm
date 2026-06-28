@@ -10,8 +10,8 @@ import (
 
 // Tray icon state colours (Apple semantic palette).
 var (
-	ColorGreen = color.RGBA{R: 52, G: 199, B: 89, A: 255}  // #34C759
-	ColorAmber = color.RGBA{R: 255, G: 159, B: 10, A: 255} // #FF9F0A
+	ColorGreen = color.RGBA{R: 52, G: 199, B: 89, A: 255}   // #34C759
+	ColorAmber = color.RGBA{R: 255, G: 159, B: 10, A: 255}  // #FF9F0A
 	ColorGray  = color.RGBA{R: 142, G: 142, B: 147, A: 255} // #8E8E93
 )
 

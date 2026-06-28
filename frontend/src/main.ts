@@ -1,28 +1,37 @@
-// Helm frontend — vanilla JS over the generated Wails v3 bindings.
-import { App } from "../bindings/helm";
+// Helm frontend — typed vanilla TS over the generated Wails v3 bindings.
+import { App, ServiceKind, type Service } from "../bindings/helm";
 import { Events } from "@wailsio/runtime";
 
-let currentServices = [];
+let currentServices: Service[] = [];
 
-async function init() {
+// byId returns a required element typed as T, throwing if the markup is missing it.
+function byId<T extends HTMLElement = HTMLElement>(id: string): T {
+  const node = document.getElementById(id);
+  if (node === null) {
+    throw new Error(`Helm: required element #${id} not found`);
+  }
+  return node as T;
+}
+
+async function init(): Promise<void> {
   wireControls();
-  currentServices = (await App.GetServices()) || [];
+  currentServices = (await App.GetServices()) ?? [];
   render(currentServices);
 
   // Backend pushes a fresh snapshot after every poll cycle that changes state.
-  Events.On("services-updated", (e) => {
-    currentServices = e.data || [];
+  Events.On("services-updated", (ev): void => {
+    currentServices = (ev.data as Service[] | null) ?? [];
     render(currentServices);
   });
 }
 
-function render(services) {
+function render(services: Service[]): void {
   updateGlobalStatus(services);
-  const list = document.getElementById("services-list");
+  const list = byId("services-list");
   list.innerHTML = "";
 
-  const known = services.filter((s) => !s.Auto);
-  const auto = services.filter((s) => s.Auto);
+  const known: Service[] = services.filter((s: Service) => !s.Auto);
+  const auto: Service[] = services.filter((s: Service) => s.Auto);
 
   if (known.length) {
     appendSection(list, "Services", known);
@@ -41,15 +50,15 @@ function render(services) {
   }
 }
 
-function appendSection(parent, label, services) {
+function appendSection(parent: HTMLElement, label: string, services: Service[]): void {
   const lbl = document.createElement("div");
   lbl.className = "section-label";
   lbl.textContent = label;
   parent.appendChild(lbl);
-  services.forEach((svc) => parent.appendChild(buildRow(svc)));
+  services.forEach((svc: Service) => parent.appendChild(buildRow(svc)));
 }
 
-function buildRow(svc) {
+function buildRow(svc: Service): HTMLDivElement {
   const row = document.createElement("div");
   row.className = "service-row";
   row.id = "row-" + svc.ID;
@@ -68,17 +77,19 @@ function buildRow(svc) {
   meta.textContent = svc.Meta || portLabel(svc);
   info.append(name, meta);
 
-  const isPort = svc.Kind === "port";
+  const isPort: boolean = svc.Kind === ServiceKind.KindPort;
   const toggle = document.createElement("label");
   toggle.className = "toggle" + (isPort ? " readonly" : "");
   toggle.title = isPort ? "Cannot control — started externally" : "";
 
   const input = document.createElement("input");
   input.type = "checkbox";
-  input.checked = !!svc.Running;
+  input.checked = svc.Running;
   input.disabled = isPort;
   if (!isPort) {
-    input.addEventListener("change", () => toggleService(svc.ID, input));
+    input.addEventListener("change", () => {
+      void toggleService(svc.ID, input);
+    });
   }
 
   const track = document.createElement("div");
@@ -89,17 +100,21 @@ function buildRow(svc) {
   return row;
 }
 
-function portLabel(svc) {
-  const proto =
-    svc.Kind === "docker" ? "docker" : svc.Kind === "systemctl" ? "systemd" : "port";
+function portLabel(svc: Service): string {
+  const proto: string =
+    svc.Kind === ServiceKind.KindDocker
+      ? "docker"
+      : svc.Kind === ServiceKind.KindSystemctl
+      ? "systemd"
+      : "port";
   return svc.Port ? `${proto} · localhost:${svc.Port}` : proto;
 }
 
-function updateGlobalStatus(services) {
-  const running = services.filter((s) => s.Running).length;
-  const total = services.length;
-  const dot = document.getElementById("global-dot");
-  const txt = document.getElementById("global-text");
+function updateGlobalStatus(services: Service[]): void {
+  const running: number = services.filter((s: Service) => s.Running).length;
+  const total: number = services.length;
+  const dot = byId("global-dot");
+  const txt = byId("global-text");
 
   dot.className =
     "status-dot " +
@@ -117,36 +132,36 @@ function updateGlobalStatus(services) {
       : `${running} of ${total} running`;
 }
 
-async function toggleService(id, checkbox) {
+async function toggleService(id: string, checkbox: HTMLInputElement): Promise<void> {
   try {
     await App.Toggle(id);
-  } catch (e) {
+  } catch (err: unknown) {
     // Revert the optimistic toggle on error.
     checkbox.checked = !checkbox.checked;
-    console.error("Toggle failed:", e);
+    console.error("Toggle failed:", err);
   }
 }
 
-function wireControls() {
-  document
-    .getElementById("btn-start-all")
-    .addEventListener("click", () => App.StartAll().catch(console.error));
-  document
-    .getElementById("btn-stop-all")
-    .addEventListener("click", () => App.StopAll().catch(console.error));
-  document
-    .getElementById("btn-close")
-    .addEventListener("click", () => App.HideWindow());
+function wireControls(): void {
+  byId<HTMLButtonElement>("btn-start-all").addEventListener("click", () => {
+    App.StartAll().catch((err: unknown) => console.error("Start all failed:", err));
+  });
+  byId<HTMLButtonElement>("btn-stop-all").addEventListener("click", () => {
+    App.StopAll().catch((err: unknown) => console.error("Stop all failed:", err));
+  });
+  byId<HTMLButtonElement>("btn-close").addEventListener("click", () => {
+    App.HideWindow().catch((err: unknown) => console.error("Hide failed:", err));
+  });
 
-  const scanBtn = document.getElementById("btn-scan");
-  scanBtn.addEventListener("click", async () => {
+  const scanBtn = byId<HTMLButtonElement>("btn-scan");
+  scanBtn.addEventListener("click", async (): Promise<void> => {
     scanBtn.disabled = true;
     scanBtn.innerHTML =
       '<i class="ti ti-loader-2 ti-spin" aria-hidden="true"></i> Scanning…';
     try {
       await App.Scan();
-    } catch (e) {
-      console.error("Scan failed:", e);
+    } catch (err: unknown) {
+      console.error("Scan failed:", err);
     }
     scanBtn.disabled = false;
     scanBtn.innerHTML =
@@ -154,4 +169,4 @@ function wireControls() {
   });
 }
 
-init();
+init().catch((err: unknown) => console.error("Helm init failed:", err));
