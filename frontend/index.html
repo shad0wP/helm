@@ -2,6 +2,11 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <!-- Lock the webview to embedded, same-origin assets only (no remote origins:
+       no remote scripts/styles/fonts/images, no exfiltration). 'unsafe-inline'
+       is retained for the Wails runtime bootstrap and bundled styles. -->
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Helm</title>
   <link rel="stylesheet" href="/style.css">
