@@ -15,6 +15,13 @@ function byId<T extends HTMLElement = HTMLElement>(id: string): T {
   return node as T;
 }
 
+// cssToken sanitises a value before it is used in a class name, allowing only
+// CSS-identifier-safe characters. Defence-in-depth at the rendering boundary so
+// service-derived strings can never carry markup or break out of an attribute.
+function cssToken(value: string): string {
+  return value.replace(/[^a-z0-9-]/gi, "");
+}
+
 async function init(): Promise<void> {
   wireControls();
   currentServices = (await App.GetServices()) ?? [];
@@ -66,8 +73,13 @@ function buildRow(svc: Service): HTMLDivElement {
   row.id = "row-" + svc.ID;
 
   const icon = document.createElement("div");
-  icon.className = `svc-icon ${svc.Color}`;
-  icon.innerHTML = `<i class="ti ti-${svc.Icon}" aria-hidden="true"></i>`;
+  icon.className = `svc-icon ${cssToken(svc.Color)}`;
+  // Build the glyph via the DOM API (no innerHTML): the icon name flows into a
+  // class name, never into parsed HTML, so it cannot inject markup/script.
+  const glyph = document.createElement("i");
+  glyph.className = `ti ti-${cssToken(svc.Icon)}`;
+  glyph.setAttribute("aria-hidden", "true");
+  icon.appendChild(glyph);
 
   const info = document.createElement("div");
   info.className = "svc-info";
