@@ -19,12 +19,16 @@ jobs:
     runs-on: ubuntu-24.04
     container:
       image: archlinux:latest
+      # WebKitGTK 6.0 sandboxes its web process with bubblewrap, which needs user
+      # namespaces — unavailable in an unprivileged container. --privileged lets
+      # bwrap create namespaces so the webview can launch (mirrors a real desktop).
+      options: --privileged
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       RELEASE_TAG: ${{ github.event.inputs.release_tag || 'v0.1.0' }}
     steps:
       - name: Install test tooling
-        run: pacman -Syu --noconfirm --needed github-cli xorg-server-xvfb dbus mesa
+        run: pacman -Syu --noconfirm --needed github-cli xorg-server-xvfb dbus mesa ttf-dejavu
 
       - name: Download released Arch package
         run: |
