@@ -1,13 +1,24 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"log"
 	"net"
 	"os/exec"
 	"runtime"
 	"strings"
 	"sync"
 	"time"
+)
+
+const (
+	// probeTimeout bounds read-only state probes (`systemctl is-active`,
+	// `docker inspect`) so an unresponsive daemon can never stall the poll loop.
+	probeTimeout = 3 * time.Second
+	// controlTimeout bounds start/stop commands, which legitimately take longer
+	// than a probe but must still not hang the caller forever.
+	controlTimeout = 30 * time.Second
 )
 
 // ServiceKind describes how a service is detected and controlled.
@@ -74,15 +85,19 @@ func defaultServices() []Service {
 // "active". (Linux only; on other platforms the binary is absent and this
 // returns false.)
 func isRunningSystemctl(unit string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
+	defer cancel()
 	// is-active exits non-zero when the unit is inactive but still prints the
 	// state to stdout, so we inspect the output rather than the exit code.
-	out, _ := exec.Command("systemctl", "is-active", unit).Output()
+	out, _ := exec.CommandContext(ctx, "systemctl", "is-active", unit).Output()
 	return strings.TrimSpace(string(out)) == "active"
 }
 
 // isRunningDocker returns true if the named container's state is "running".
 func isRunningDocker(container string) bool {
-	out, err := exec.Command("docker", "inspect", "--format", "{{.State.Status}}", container).Output()
+	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "docker", "inspect", "--format", "{{.State.Status}}", container).Output()
 	if err != nil {
 		return false
 	}
@@ -118,12 +133,14 @@ func controlService(s Service, start bool) error {
 	if start {
 		action = "start"
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), controlTimeout)
+	defer cancel()
 	switch s.Kind {
 	case KindSystemctl:
 		// Requires a NOPASSWD sudoers rule (see README) to run unattended.
-		return exec.Command("sudo", "systemctl", action, s.Unit).Run()
+		return exec.CommandContext(ctx, "sudo", "systemctl", action, s.Unit).Run()
 	case KindDocker:
-		return exec.Command("docker", action, s.Container).Run()
+		return exec.CommandContext(ctx, "docker", action, s.Container).Run()
 	default:
 		return fmt.Errorf("cannot control %s — started externally", s.Name)
 	}
@@ -249,9 +266,21 @@ func (m *ServiceManager) StartPolling(interval time.Duration) {
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 		for range ticker.C {
-			m.refreshAndNotify()
+			m.pollOnce()
 		}
 	}()
+}
+
+// pollOnce performs a single poll cycle. It recovers from any panic in the
+// state-change callback so one bad cycle can never silently kill the long-lived
+// polling goroutine and freeze all future updates.
+func (m *ServiceManager) pollOnce() {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("helm: recovered from panic during poll cycle: %v", r)
+		}
+	}()
+	m.refreshAndNotify()
 }
 
 // GetServices returns a thread-safe copy of the current snapshot.
