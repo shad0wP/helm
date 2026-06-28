@@ -8,7 +8,7 @@ on:
       release_tag:
         description: "Release tag to attach the Linux artifacts to"
         required: false
-        default: "v0.1.0"
+        default: "v0.1.1"
 
 permissions:
   contents: write
@@ -18,8 +18,8 @@ jobs:
     name: Build Linux (amd64)
     runs-on: ubuntu-24.04
     env:
-      VERSION: "0.1.0"
-      RELEASE_TAG: ${{ github.event.inputs.release_tag || 'v0.1.0' }}
+      VERSION: "0.1.1"
+      RELEASE_TAG: ${{ github.event.inputs.release_tag || 'v0.1.1' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
