@@ -6,7 +6,7 @@
 name: "helm"
 arch: ${GOARCH}
 platform: "linux"
-version: "0.1.1"
+version: "0.1.2"
 section: "default"
 priority: "extra"
 maintainer: shad0wP <202858710+shad0wP@users.noreply.github.com>

@@ -185,6 +185,27 @@ read-only, under **Auto-detected** (you can't toggle a process Helm didn't start
 
 ## Changelog
 
+### v0.1.2
+
+Hardening, quality, and structure — no user-facing behaviour change.
+
+- **Security.** Bundled the Tabler icon font locally (removed the runtime jsDelivr CDN
+  dependency); added a Content-Security-Policy locking the webview to local origins; eliminated
+  a latent DOM-XSS sink in the renderer (`innerHTML` → safe DOM construction + sanitisation);
+  bumped `golang.org/x/sys` to clear advisory GO-2026-5024 / CVE-2026-39824; added a CI security
+  gate that runs `govulncheck` + `npm audit` on every push and weekly.
+- **Reliability.** All external `systemctl` / `docker` commands now run with bounded timeouts so
+  an unresponsive daemon can never stall the app; the 5-second polling loop recovers from
+  callback panics and shuts down gracefully.
+- **Frontend.** Rewritten in strict TypeScript with explicit types and handled promise
+  rejections.
+- **Quality & structure.** Added a unit-test suite (~83% coverage) for the core logic, and
+  consolidated the domain logic into `internal/service` and `internal/icon` packages.
+- **Dependencies.** Updated to current versions (TypeScript 6, Tabler Icons 3.44, plus Go patch
+  bumps).
+- **Docs.** Rewrote the install section with prebuilt-release download steps and accurate
+  build-from-source dependencies.
+
 ### v0.1.1
 
 - **Native Linux builds.** Official `linux/amd64` artifacts now ship with every release: an
