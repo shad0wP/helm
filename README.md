@@ -32,54 +32,100 @@ third-party Go dependencies beyond Wails itself.
 
 ## Requirements
 
-- **Go 1.25+**
-- **Wails v3 CLI** (`wails3`)
-- **Node.js / npm** (the frontend is bundled with Vite)
-- **Linux only:** GTK4 + WebKitGTK 6.0
-- **Docker** (optional) — required only to control the Docker-based services
-- **macOS:** Ollama is observed via its port (control it through Ollama.app)
+- **Running a prebuilt release** needs only the runtime libraries:
+  - **Linux:** GTK4 + WebKitGTK 6.0 (`gtk4`, `webkitgtk-6.0`) — the distro packages pull these in automatically.
+  - **macOS:** 12 (Monterey) or newer.
+- **Building from source** additionally needs **Go 1.25+**, **Node.js / npm** (the frontend is bundled with Vite), and the **Wails v3 CLI** (`wails3`).
+- **Docker** (optional) — only required to control the Docker-based services.
+- On **macOS**, Ollama is observed via its port (control it through Ollama.app).
 
 ## Install
 
-### Arch (Linux)
+### Download a release (recommended)
+
+Prebuilt, signed-where-possible binaries are attached to the
+[latest GitHub release](https://github.com/shad0wP/helm/releases/latest). No build toolchain required.
+
+**Linux (x86_64)** — pick the package for your distribution:
 
 ```bash
-# System dependencies
-sudo pacman -S --needed webkit2gtk-4.1 webkitgtk-6.0 gtk4 base-devel go npm
+# Arch / CachyOS        (pulls in gtk4 + webkitgtk-6.0 automatically)
+sudo pacman -U helm-*-linux-x86_64.pkg.tar.zst
 
-# Wails v3 CLI
-go install github.com/wailsapp/wails/v3/cmd/wails3@latest
+# Debian / Ubuntu
+sudo apt install ./helm-*-linux-amd64.deb
 
-# Verify
-wails3 doctor
+# Fedora / RHEL
+sudo dnf install ./helm-*-linux-x86_64.rpm
 
-# Build
-git clone <your-repo-url> helm && cd helm
-wails3 build
-./bin/helm
+# Any distro — raw binary (requires gtk4 + webkitgtk-6.0 already installed)
+tar -xzf helm-*-linux-amd64.tar.gz && ./helm
 ```
 
-The system tray uses StatusNotifierItem (SNI), supported natively by KDE Plasma.
-
-### macOS
+**macOS (universal — Apple Silicon + Intel)**:
 
 ```bash
-# Toolchain (Homebrew)
-brew install go
+unzip Helm-*-macos-universal.app.zip
+mv Helm.app /Applications/
+# The build is ad-hoc signed (not notarized); clear the quarantine flag on first launch:
+xattr -dr com.apple.quarantine /Applications/Helm.app
+open /Applications/Helm.app
+```
+
+Verify any download against the published checksums:
+
+```bash
+sha256sum -c SHA256SUMS-linux.txt      # Linux
+shasum -a 256 -c SHA256SUMS-macos.txt  # macOS
+```
+
+Helm runs in the **menu bar / system tray** (no Dock or taskbar window). The Linux tray uses
+StatusNotifierItem (SNI), supported natively by KDE Plasma.
+
+### Build from source
+
+Install the Wails v3 CLI, then the platform build dependencies:
+
+```bash
 go install github.com/wailsapp/wails/v3/cmd/wails3@latest
+```
 
-# Verify
-wails3 doctor
+```bash
+# Arch / CachyOS
+sudo pacman -S --needed gtk4 webkitgtk-6.0 base-devel go npm
 
-# Build the binary…
-git clone <your-repo-url> helm && cd helm
-wails3 build
+# Debian / Ubuntu (24.04+)
+sudo apt install libgtk-4-dev libwebkitgtk-6.0-dev build-essential pkg-config golang npm
+
+# macOS
+brew install go node
+```
+
+Then build:
+
+```bash
+git clone https://github.com/shad0wP/helm && cd helm
+wails3 doctor          # verify the toolchain (must report no errors)
+wails3 build           # production binary → ./bin/helm
 ./bin/helm
 
-# …or build a double-clickable .app bundle:
+wails3 dev             # …or run in dev mode with hot-reload
+```
+
+### Package for distribution
+
+```bash
+# macOS  → ./bin/Helm.app (ad-hoc signed)
 wails3 package
-open ./bin/helm.app
+# (universal arm64 + amd64 bundle: wails3 task darwin:package:universal)
+
+# Linux  → ./bin/ : AppImage + .deb + .rpm + Arch .pkg.tar.zst
+wails3 package
 ```
+
+> **Note:** Wails v3 emits artifacts under `./bin/`. The frontend is compiled by Vite into
+> `frontend/dist` and embedded into the binary; the Go↔JS bindings are generated into
+> `frontend/bindings` at build time.
 
 ## Linux: passwordless service control (sudoers)
 
@@ -100,26 +146,6 @@ Paste exactly (replace `<your-username>` with your login name, e.g. the output o
 ```
 
 Save, then run `sudo visudo -c` to validate the file. Helm never writes this file for you.
-
-## Build from source
-
-```bash
-# Development (hot-reload, opens the popover and a live frontend dev server)
-wails3 dev
-
-# Production binary  →  ./bin/helm   (Linux & macOS)
-wails3 build
-
-# macOS .app bundle  →  ./bin/helm.app
-wails3 package
-
-# Optional Linux AppImage
-wails3 task linux:create:appimage
-```
-
-> **Note:** Wails v3 emits the binary under `./bin/`. The frontend is compiled by Vite into
-> `frontend/dist` and embedded into the binary, and the Go↔JS bindings are generated into
-> `frontend/bindings` at build time.
 
 ## Services
 
@@ -150,11 +176,32 @@ read-only, under **Auto-detected** (you can't toggle a process Helm didn't start
 ## How it works
 
 - **Detection:** `systemctl is-active <unit>` (Linux), `docker inspect` container status, or a
-  300 ms TCP dial to `127.0.0.1:<port>`.
+  300 ms TCP dial to `127.0.0.1:<port>`. External commands run with a bounded timeout so an
+  unresponsive daemon can never stall the app.
 - **Polling:** every service is re-checked every **5 seconds**; the tray icon and popover only
   redraw when something actually changed.
 - **Control:** `sudo systemctl start|stop` (Linux units) or `docker start|stop` (containers).
   Port-detected services are read-only and show _"Cannot control — started externally."_
+
+## Changelog
+
+### v0.1.1
+
+- **Native Linux builds.** Official `linux/amd64` artifacts now ship with every release: an
+  Arch / CachyOS package (`.pkg.tar.zst`), a Debian/Ubuntu `.deb`, a Fedora/RHEL `.rpm`, and a
+  raw binary tarball — all built natively against GTK4 + WebKitGTK 6.0 in CI.
+- **Verified on real Arch Linux.** CI now installs the Arch package with `pacman -U` and launches
+  the app headless to confirm it runs end-to-end before a release is published.
+- **Cleaner packages.** Corrected the Linux package metadata (maintainer, vendor, homepage,
+  description) and gave the distro packages conventional, versioned filenames.
+
+_No application code changed between v0.1.0 and v0.1.1 — this release is entirely about Linux
+packaging and release automation._
+
+### v0.1.0
+
+- Initial release: a universal macOS (Apple Silicon + Intel) menu-bar controller for a local AI
+  stack, with an iOS-style popover and a real-time green/amber/grey tray indicator.
 
 ## License
 
