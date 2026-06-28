@@ -10,7 +10,7 @@ on:
       release_tag:
         description: "Release tag to verify"
         required: false
-        default: "v0.1.2"
+        default: "v0.1.3"
 
 permissions:
   contents: read
@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-24.04
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      RELEASE_TAG: ${{ github.event.inputs.release_tag || 'v0.1.2' }}
+      RELEASE_TAG: ${{ github.event.inputs.release_tag || 'v0.1.3' }}
     steps:
       - name: Relax unprivileged user-namespace restriction (host)
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
