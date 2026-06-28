@@ -1,16 +1,21 @@
 package main
 
-import "github.com/wailsapp/wails/v3/pkg/application"
+import (
+	"helm/internal/service"
+
+	"github.com/wailsapp/wails/v3/pkg/application"
+)
 
 // App is the service exposed to the frontend. Every exported method is callable
-// from JavaScript through the generated bindings.
+// from JavaScript through the generated bindings. It is a thin delegation layer
+// over the service.ServiceManager.
 type App struct {
-	svc    *ServiceManager
+	svc    *service.ServiceManager
 	window application.Window
 }
 
 // GetServices returns the current service snapshot.
-func (a *App) GetServices() []Service { return a.svc.GetServices() }
+func (a *App) GetServices() []service.Service { return a.svc.GetServices() }
 
 // Toggle starts or stops the named service.
 func (a *App) Toggle(id string) error { return a.svc.Toggle(id) }

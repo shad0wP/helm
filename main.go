@@ -4,6 +4,8 @@ import (
 	"embed"
 	"log"
 
+	"helm/internal/service"
+
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
@@ -13,7 +15,7 @@ import (
 var assets embed.FS
 
 func main() {
-	svc := NewServiceManager()
+	svc := service.NewServiceManager()
 	bound := &App{svc: svc}
 
 	app := application.New(application.Options{

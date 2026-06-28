@@ -3,6 +3,9 @@ package main
 import (
 	"time"
 
+	"helm/internal/icon"
+	"helm/internal/service"
+
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
 )
@@ -11,18 +14,18 @@ import (
 func iconForState(state string) []byte {
 	switch state {
 	case "all":
-		return IconGreen
+		return icon.IconGreen
 	case "some":
-		return IconAmber
+		return icon.IconAmber
 	default:
-		return IconGray
+		return icon.IconGray
 	}
 }
 
 // setupTray creates the frameless popover window, wires it to a system tray
 // icon, and starts the polling loop that keeps both the tray colour and the
 // frontend in sync with the live service state.
-func setupTray(app *application.App, svc *ServiceManager, bound *App) {
+func setupTray(app *application.App, svc *service.ServiceManager, bound *App) {
 	// 1. The popover panel: frameless, fixed size, always on top, hidden on
 	//    start. The native tray attachment dismisses it on focus loss.
 	window := app.Window.NewWithOptions(application.WebviewWindowOptions{
@@ -52,7 +55,7 @@ func setupTray(app *application.App, svc *ServiceManager, bound *App) {
 
 	// 2. The system tray icon, starting grey and reflecting current state.
 	tray := app.SystemTray.New()
-	tray.SetIcon(iconForState(AggregateState(svc.GetServices())))
+	tray.SetIcon(iconForState(service.AggregateState(svc.GetServices())))
 	tray.SetTooltip("Helm — Local AI stack")
 
 	// Left-click toggles the attached window, positioned just below the icon.
@@ -71,8 +74,8 @@ func setupTray(app *application.App, svc *ServiceManager, bound *App) {
 
 	// 3. On every state change: recolour the tray and push the snapshot to the
 	//    frontend so it re-renders without a full reload.
-	svc.SetOnChange(func(services []Service) {
-		tray.SetIcon(iconForState(AggregateState(services)))
+	svc.SetOnChange(func(services []service.Service) {
+		tray.SetIcon(iconForState(service.AggregateState(services)))
 		app.Event.Emit("services-updated", services)
 	})
 

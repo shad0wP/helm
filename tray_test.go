@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"testing"
+
+	"helm/internal/icon"
 )
 
 func TestIconForState(t *testing.T) {
@@ -10,11 +12,11 @@ func TestIconForState(t *testing.T) {
 		state string
 		want  []byte
 	}{
-		{"all", IconGreen},
-		{"some", IconAmber},
-		{"none", IconGray},
-		{"", IconGray},           // empty -> grey (default branch)
-		{"unexpected", IconGray}, // any unknown value -> grey
+		{"all", icon.IconGreen},
+		{"some", icon.IconAmber},
+		{"none", icon.IconGray},
+		{"", icon.IconGray},           // empty -> grey (default branch)
+		{"unexpected", icon.IconGray}, // any unknown value -> grey
 	}
 	for _, tt := range tests {
 		t.Run(tt.state, func(t *testing.T) {

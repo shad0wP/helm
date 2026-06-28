@@ -1,26 +1,26 @@
 package main
 
 import (
-	"net"
 	"testing"
+
+	"helm/internal/service"
 )
 
-// TestAppDelegatesToManager checks the bound App methods forward to the
-// ServiceManager and that HideWindow is safe when no window is attached.
-func TestAppDelegatesToManager(t *testing.T) {
-	m := &ServiceManager{services: []Service{
-		{ID: "hermes", Name: "Hermes", Kind: KindPort, Port: 9119, Running: false},
-	}}
-	a := &App{svc: m}
+// The App is a thin delegation layer; these tests verify each bound method
+// forwards to the ServiceManager. The manager's own edge-case behaviour
+// (read-only services, unknown ids, …) is white-box-tested in internal/service.
+
+func TestAppGetServicesAndToggleDelegate(t *testing.T) {
+	a := &App{svc: &service.ServiceManager{}}
 
 	got := a.GetServices()
-	if len(got) != 1 || got[0].ID != "hermes" {
-		t.Errorf("App.GetServices() = %+v, want one service 'hermes'", got)
+	if got == nil {
+		t.Error("App.GetServices() returned nil, want an (empty) slice")
 	}
-
-	if err := a.Toggle("hermes"); err == nil {
-		t.Error("App.Toggle on a read-only port service = nil, want error")
+	if len(got) != 0 {
+		t.Errorf("App.GetServices() on an empty manager = %d, want 0", len(got))
 	}
+	// Toggle forwards to the manager, which rejects an unknown id.
 	if err := a.Toggle("missing"); err == nil {
 		t.Error("App.Toggle on an unknown id = nil, want error")
 	}
@@ -28,7 +28,7 @@ func TestAppDelegatesToManager(t *testing.T) {
 
 // TestHideWindowWithoutWindowIsSafe guards the nil-window branch (null input).
 func TestHideWindowWithoutWindowIsSafe(t *testing.T) {
-	a := &App{svc: &ServiceManager{}}
+	a := &App{svc: &service.ServiceManager{}}
 	defer func() {
 		if r := recover(); r != nil {
 			t.Errorf("HideWindow panicked with no window attached: %v", r)
@@ -37,19 +37,10 @@ func TestHideWindowWithoutWindowIsSafe(t *testing.T) {
 	a.HideWindow() // window is nil -> must be a no-op
 }
 
-// TestAppStartStopScanDelegate exercises the remaining bound methods against a
-// read-only service so no external command is ever run.
+// TestAppStartStopScanDelegate exercises the remaining bound methods against an
+// empty manager, so no external command is ever run.
 func TestAppStartStopScanDelegate(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen: %v", err)
-	}
-	defer ln.Close()
-	port := ln.Addr().(*net.TCPAddr).Port
-
-	a := &App{svc: &ServiceManager{services: []Service{
-		{ID: "p", Kind: KindPort, Port: port, Running: true},
-	}}}
+	a := &App{svc: &service.ServiceManager{}}
 	if err := a.StartAll(); err != nil {
 		t.Errorf("App.StartAll() = %v, want nil", err)
 	}

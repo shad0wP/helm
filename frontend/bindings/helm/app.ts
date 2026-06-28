@@ -3,7 +3,8 @@
 
 /**
  * App is the service exposed to the frontend. Every exported method is callable
- * from JavaScript through the generated bindings.
+ * from JavaScript through the generated bindings. It is a thin delegation layer
+ * over the service.ServiceManager.
  * @module
  */
 
@@ -13,12 +14,12 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
-import * as $models from "./models.js";
+import * as service$0 from "./internal/service/models.js";
 
 /**
  * GetServices returns the current service snapshot.
  */
-export function GetServices(): $CancellablePromise<$models.Service[] | null> {
+export function GetServices(): $CancellablePromise<service$0.Service[] | null> {
     return $Call.ByID(839930963);
 }
 
