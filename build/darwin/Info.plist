@@ -4,26 +4,27 @@
         <key>CFBundlePackageType</key>
             <string>APPL</string>
         <key>CFBundleName</key>
-            <string>My Product</string>
+            <string>Helm</string>
         <key>CFBundleExecutable</key>
             <string>helm</string>
         <key>CFBundleIdentifier</key>
-            <string>com.example.helm</string>
+            <string>io.github.shad0wp.helm</string>
         <key>CFBundleVersion</key>
-            <string>0.1.0</string>
+            <string>0.1.3</string>
         <key>CFBundleGetInfoString</key>
-            <string>This is a comment</string>
+            <string>Helm — local AI stack controller</string>
         <key>CFBundleShortVersionString</key>
-            <string>0.1.0</string>
+            <string>0.1.3</string>
         <key>CFBundleIconFile</key>
             <string>icons</string>
-        <key>CFBundleIconName</key>
-            <string>appicon</string>
         <key>LSMinimumSystemVersion</key>
             <string>12.0.0</string>
+        <!-- Menu-bar-only agent: no Dock icon and no app-switcher entry. -->
+        <key>LSUIElement</key>
+            <true/>
         <key>NSHighResolutionCapable</key>
             <string>true</string>
         <key>NSHumanReadableCopyright</key>
-            <string>© 2026, My Company</string>
+            <string>© 2026 shad0wP</string>
     </dict>
 </plist>

@@ -5,12 +5,12 @@ version: '3'
 
 # This information is used to generate the build assets.
 info:
-  companyName: "My Company" # The name of the company
-  productName: "My Product" # The name of the application
-  productIdentifier: "com.mycompany.myproduct" # The unique product identifier
-  description: "A program that does X" # The application description
-  copyright: "(c) 2025, My Company" # Copyright text
-  comments: "Some Product Comments" # Comments
+  companyName: "shad0wP" # The name of the company
+  productName: "Helm" # The name of the application
+  productIdentifier: "io.github.shad0wp.helm" # The unique product identifier
+  description: "Local AI stack controller (menu bar / system tray)" # The application description
+  copyright: "© 2026 shad0wP" # Copyright text
+  comments: "Menu-bar-only controller for a local AI stack" # Comments
   version: "0.1.3" # The application version
   # cfBundleIconName: "appicon" # The macOS icon name in Assets.car icon bundles (optional)
   #                               # Should match the name of your .icon file without the extension

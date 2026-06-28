@@ -185,6 +185,22 @@ read-only, under **Auto-detected** (you can't toggle a process Helm didn't start
 
 ## Changelog
 
+### v0.1.3
+
+macOS deployment readiness for a private, local install.
+
+- **True menu-bar-only app.** `Info.plist` now sets `LSUIElement` — Helm runs as a macOS agent
+  with **no Dock icon** and no app-switcher entry, a pure menu-bar experience.
+- **Correct app bundle.** Bundle name (`Helm`), identifier, version, and copyright are no longer
+  scaffold placeholders; the helm-wheel `icons.icns` is used directly (removed the stale Wails
+  asset catalog), so packaging needs no manual icon post-step.
+- **Automated ad-hoc signing.** `wails3 package` ad-hoc signs the bundle
+  (`codesign --force --deep --sign -`) so it runs locally without a paid Apple Developer account
+  or notarization.
+- _Audit confirmations (already in place): release binaries are stripped (`-ldflags="-s -w"`),
+  tray icons are generated in code (cross-platform, no per-OS asset files), and there is no
+  public artifact distribution / Homebrew tap (private repo, private releases)._
+
 ### v0.1.2
 
 Hardening, quality, and structure — no user-facing behaviour change.
