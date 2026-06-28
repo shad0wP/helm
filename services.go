@@ -170,6 +170,8 @@ type ServiceManager struct {
 	mu       sync.RWMutex
 	services []Service       // current snapshot; index stable between rebuilds
 	onChange func([]Service) // invoked after any poll cycle that changes state
+	stop     chan struct{}   // closed to stop the polling goroutine
+	stopOnce sync.Once       // guards a single close of stop
 }
 
 // NewServiceManager builds the manager with an initial, fully-probed snapshot
@@ -259,16 +261,41 @@ func (m *ServiceManager) refreshAndNotify() {
 	}
 }
 
+// ensureStop lazily creates the stop channel and returns it. Callers must hold
+// no lock; it manages m.mu internally.
+func (m *ServiceManager) ensureStop() chan struct{} {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.stop == nil {
+		m.stop = make(chan struct{})
+	}
+	return m.stop
+}
+
 // StartPolling re-checks every service on the given interval, firing onChange
-// only on cycles where the state actually changed.
+// only on cycles where the state actually changed. The goroutine exits when
+// StopPolling is called.
 func (m *ServiceManager) StartPolling(interval time.Duration) {
+	stop := m.ensureStop()
 	go func() {
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
-		for range ticker.C {
-			m.pollOnce()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				m.pollOnce()
+			}
 		}
 	}()
+}
+
+// StopPolling stops the polling goroutine for a graceful shutdown. It is safe to
+// call multiple times and before StartPolling.
+func (m *ServiceManager) StopPolling() {
+	stop := m.ensureStop()
+	m.stopOnce.Do(func() { close(stop) })
 }
 
 // pollOnce performs a single poll cycle. It recovers from any panic in the

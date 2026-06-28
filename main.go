@@ -29,6 +29,8 @@ func main() {
 			// Keep running in the menu bar when the popover is dismissed.
 			ApplicationShouldTerminateAfterLastWindowClosed: false,
 		},
+		// Gracefully stop the polling goroutine on shutdown.
+		OnShutdown: func() { svc.StopPolling() },
 	})
 
 	setupTray(app, svc, bound)

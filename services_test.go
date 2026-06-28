@@ -354,6 +354,7 @@ func TestStartPollingDetectsChange(t *testing.T) {
 	})
 
 	m.StartPolling(10 * time.Millisecond)
+	defer m.StopPolling() // graceful shutdown: stop the goroutine when done
 	select {
 	case <-notified:
 		// The first poll observed the stopped->running transition.
@@ -363,4 +364,14 @@ func TestStartPollingDetectsChange(t *testing.T) {
 	if !m.GetServices()[0].Running {
 		t.Error("polling did not update the service to running")
 	}
+}
+
+func TestStopPollingIsSafeAndIdempotent(t *testing.T) {
+	m := &ServiceManager{}
+	// Safe before StartPolling and when called repeatedly (stopOnce guards close).
+	m.StopPolling()
+	m.StopPolling()
+	// Starting after a stop must not hang or leak: the goroutine sees a closed
+	// stop channel and returns immediately.
+	m.StartPolling(10 * time.Millisecond)
 }

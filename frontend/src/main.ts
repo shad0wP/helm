@@ -1,4 +1,6 @@
 // Helm frontend — typed vanilla TS over the generated Wails v3 bindings.
+// Bundle the Tabler icon webfont locally (no runtime CDN dependency).
+import "@tabler/icons-webfont/dist/tabler-icons.min.css";
 import { App, ServiceKind, type Service } from "../bindings/helm";
 import { Events } from "@wailsio/runtime";
 
