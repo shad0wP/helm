@@ -1,0 +1,82 @@
+name: Verify Linux
+
+# Installs the released Arch package on a real Arch Linux container (what CachyOS
+# is based on) and launches it headless to prove it runs end-to-end.
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag to verify"
+        required: false
+        default: "v0.1.0"
+
+permissions:
+  contents: read
+
+jobs:
+  verify-arch:
+    name: Install & launch on Arch Linux
+    runs-on: ubuntu-24.04
+    container:
+      image: archlinux:latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      RELEASE_TAG: ${{ github.event.inputs.release_tag || 'v0.1.0' }}
+    steps:
+      - name: Install test tooling
+        run: pacman -Syu --noconfirm --needed github-cli xorg-server-xvfb dbus mesa
+
+      - name: Download released Arch package
+        run: |
+          set -eux
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" -p '*.pkg.tar.zst' -D /tmp/pkg
+          ls -la /tmp/pkg
+
+      - name: Install package (pacman resolves gtk4 + webkitgtk-6.0)
+        run: |
+          set -eux
+          pacman -U --noconfirm /tmp/pkg/*.pkg.tar.zst
+          echo "--- package file list ---"
+          pacman -Ql helm | grep -E 'bin/helm|\.desktop|\.png'
+          echo "--- declared dependencies ---"
+          pacman -Qi helm | grep -i 'depends'
+
+      - name: Verify dynamic linkage (every library resolves)
+        run: |
+          set -eux
+          BIN=/usr/local/bin/helm
+          ldd "$BIN"
+          if ldd "$BIN" | grep -i 'not found'; then
+            echo "FAIL: unresolved shared libraries"
+            exit 1
+          fi
+          echo "OK: all shared libraries resolved (gtk4 + webkitgtk-6.0 present)"
+
+      - name: Launch headless (Xvfb + dbus session) and require it to stay alive
+        run: |
+          set -eux
+          export WEBKIT_DISABLE_SANDBOX=1
+          export WEBKIT_DISABLE_COMPOSITING_MODE=1
+          export WEBKIT_DISABLE_DMABUF_RENDERER=1
+          export LIBGL_ALWAYS_SOFTWARE=1
+          export GALLIUM_DRIVER=llvmpipe
+          export GDK_BACKEND=x11
+          dbus-run-session -- xvfb-run -a -s "-screen 0 1280x1024x24" bash -c '
+            set -x
+            helm > /tmp/helm.log 2>&1 &
+            PID=$!
+            sleep 12
+            STATUS=0
+            if kill -0 "$PID" 2>/dev/null; then
+              echo "RESULT: PASS - helm launched and stayed alive for 12s (PID $PID)"
+              kill -TERM "$PID" 2>/dev/null || true
+              sleep 1
+            else
+              echo "RESULT: FAIL - helm exited prematurely"
+              STATUS=1
+            fi
+            echo "========== helm runtime log =========="
+            cat /tmp/helm.log || true
+            echo "======================================"
+            exit $STATUS
+          '
