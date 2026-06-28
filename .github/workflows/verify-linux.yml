@@ -1,7 +1,9 @@
 name: Verify Linux
 
-# Installs the released Arch package on a real Arch Linux container (what CachyOS
-# is based on) and launches it headless to prove it runs end-to-end.
+# Proves the released Arch package installs on real Arch Linux (what CachyOS is
+# based on) and that the app launches end-to-end. The launch test runs Arch in a
+# privileged Docker container on the runner host, where we can relax the user
+# namespace restriction that WebKitGTK 6.0's bubblewrap sandbox requires.
 on:
   workflow_dispatch:
     inputs:
@@ -17,54 +19,50 @@ jobs:
   verify-arch:
     name: Install & launch on Arch Linux
     runs-on: ubuntu-24.04
-    container:
-      image: archlinux:latest
-      # WebKitGTK 6.0 sandboxes its web process with bubblewrap, which needs user
-      # namespaces — unavailable in an unprivileged container. --privileged lets
-      # bwrap create namespaces so the webview can launch (mirrors a real desktop).
-      options: --privileged
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       RELEASE_TAG: ${{ github.event.inputs.release_tag || 'v0.1.0' }}
     steps:
-      - name: Install test tooling
-        run: pacman -Syu --noconfirm --needed github-cli xorg-server-xvfb dbus mesa ttf-dejavu
+      - name: Relax unprivileged user-namespace restriction (host)
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
 
       - name: Download released Arch package
         run: |
           set -eux
-          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" -p '*.pkg.tar.zst' -D /tmp/pkg
-          ls -la /tmp/pkg
+          mkdir -p pkg
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" -p '*.pkg.tar.zst' -D pkg
+          ls -la pkg
 
-      - name: Install package (pacman resolves gtk4 + webkitgtk-6.0)
+      - name: Write in-container verification script
         run: |
-          set -eux
-          pacman -U --noconfirm /tmp/pkg/*.pkg.tar.zst
-          echo "--- package file list ---"
+          cat > verify-in-arch.sh <<'EOS'
+          #!/usr/bin/env bash
+          set -euxo pipefail
+
+          # Tooling needed to install the package and run the app headless.
+          pacman -Syu --noconfirm --needed xorg-server-xvfb dbus mesa ttf-dejavu
+
+          # Install the actual released package (pacman resolves gtk4 + webkitgtk-6.0).
+          pacman -U --noconfirm /work/pkg/*.pkg.tar.zst
+          echo "--- installed files ---"
           pacman -Ql helm | grep -E 'bin/helm|\.desktop|\.png'
           echo "--- declared dependencies ---"
-          pacman -Qi helm | grep -i 'depends'
+          pacman -Qi helm | grep -i 'depends on'
 
-      - name: Verify dynamic linkage (every library resolves)
-        run: |
-          set -eux
+          # Every shared library must resolve against the installed Arch stack.
           BIN=/usr/local/bin/helm
           ldd "$BIN"
           if ldd "$BIN" | grep -i 'not found'; then
-            echo "FAIL: unresolved shared libraries"
-            exit 1
+            echo "FAIL: unresolved shared libraries"; exit 1
           fi
-          echo "OK: all shared libraries resolved (gtk4 + webkitgtk-6.0 present)"
+          echo "OK: all shared libraries resolved"
 
-      - name: Launch headless (Xvfb + dbus session) and require it to stay alive
-        run: |
-          set -eux
-          export WEBKIT_DISABLE_SANDBOX=1
           export WEBKIT_DISABLE_COMPOSITING_MODE=1
           export WEBKIT_DISABLE_DMABUF_RENDERER=1
           export LIBGL_ALWAYS_SOFTWARE=1
           export GALLIUM_DRIVER=llvmpipe
           export GDK_BACKEND=x11
+
           dbus-run-session -- xvfb-run -a -s "-screen 0 1280x1024x24" bash -c '
             set -x
             helm > /tmp/helm.log 2>&1 &
@@ -84,3 +82,13 @@ jobs:
             echo "======================================"
             exit $STATUS
           '
+          EOS
+          chmod +x verify-in-arch.sh
+
+      - name: Run Arch container (privileged) and verify
+        run: |
+          set -eux
+          docker run --rm --privileged --shm-size=1g \
+            -v "$PWD:/work" -w /work \
+            archlinux:latest \
+            bash /work/verify-in-arch.sh
