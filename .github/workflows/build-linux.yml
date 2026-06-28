@@ -63,6 +63,10 @@ jobs:
           wails3 tool package -name helm -format archlinux -config ./build/linux/nfpm/nfpm.yaml -out ./bin
           wails3 tool package -name helm -format deb       -config ./build/linux/nfpm/nfpm.yaml -out ./bin
           wails3 tool package -name helm -format rpm       -config ./build/linux/nfpm/nfpm.yaml -out ./bin
+          # Give the packages conventional, versioned filenames.
+          mv bin/helm.pkg.tar.zst "bin/helm-${VERSION}-linux-x86_64.pkg.tar.zst"
+          mv bin/helm.deb         "bin/helm-${VERSION}-linux-amd64.deb"
+          mv bin/helm.rpm         "bin/helm-${VERSION}-linux-x86_64.rpm"
           ls -la bin
 
       - name: Checksums
