@@ -173,6 +173,35 @@ read-only, under **Auto-detected** (you can't toggle a process Helm didn't start
 | 5000  | Flask / ML App    | `api`          | gray   |
 | 11435 | Ollama (alt)      | `cpu`          | green  |
 
+## Configuring your own services
+
+Helm ships with sensible defaults, but you can declare your own local servers in
+`~/.config/helm/services.json` (honours `$XDG_CONFIG_HOME`). JSON is used rather than TOML to
+keep the zero-Go-dependency rule. Entries whose `id` matches a built-in override it; new ids are
+appended.
+
+```json
+{
+  "services": [
+    { "id": "hermes", "name": "Hermes Agent", "kind": "process", "port": 9119, "icon": "robot", "color": "purple" },
+    { "id": "my-vllm", "name": "vLLM", "kind": "process", "port": 8000 },
+    { "id": "my-unit", "name": "Custom LLM", "kind": "systemctl", "unit": "myllm.service" }
+  ]
+}
+```
+
+`kind` is one of `systemctl` (needs `unit`), `docker` (needs `container`), `port` (read-only
+probe), or `process` (probe **and** stop by resolving the owning PID). A `process` service you
+started from a terminal can be stopped from Helm; a `port` service is display-only.
+
+**Discovery.** "Scan for services" enumerates listening sockets (`ss` / `lsof`) and surfaces any
+process matching a known inference signature (ollama, llama-server, vllm, sglang, koboldcpp,
+tabbyAPI, text-generation, …) as a stoppable `process` service — so servers you launched by hand
+show up without any config.
+
+**Free VRAM.** The footer/menu "Free VRAM" action unloads all resident Ollama models
+(`keep_alive: 0`) to reclaim GPU memory **without** stopping the daemon.
+
 ## How it works
 
 - **Detection:** `systemctl is-active <unit>` (Linux), `docker inspect` container status, or a

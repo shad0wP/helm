@@ -239,6 +239,16 @@ func buildLinuxMenu(app *application.App, svc *service.ServiceManager, window ap
 			}
 		}()
 	})
+	menu.Add("Free VRAM (unload Ollama models)").OnClick(func(_ *application.Context) {
+		go func() {
+			n, err := svc.FreeVRAM()
+			if err != nil {
+				log.Printf("helm: free VRAM failed: %v", err)
+				return
+			}
+			log.Printf("helm: freed VRAM — unloaded %d model(s)", n)
+		}()
+	})
 
 	menu.AddSeparator()
 	menu.Add("Show Helm…").OnClick(func(_ *application.Context) {

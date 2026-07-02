@@ -200,3 +200,22 @@ body {
 /* Spinner used by the Scan button while detecting. */
 .ti-spin { animation: ti-spin 0.9s linear infinite; }
 @keyframes ti-spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
+
+/* Non-blocking toast for status/errors (text set via textContent only). */
+.toast {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: 46px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.35;
+  color: #fff;
+  background: var(--text2, #444);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  z-index: 50;
+}
+.toast[hidden] { display: none; }
+.toast.error { background: var(--danger, #c0392b); }
+.toast.info { background: var(--accent, #2d6cdf); }

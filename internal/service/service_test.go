@@ -20,6 +20,20 @@ func freePort(t *testing.T) (net.Listener, int) {
 	return ln, ln.Addr().(*net.TCPAddr).Port
 }
 
+func TestIsRunningPortIPv6(t *testing.T) {
+	// A server bound only to ::1 must be detected — the previous IPv4-only
+	// probe missed these.
+	ln, err := net.Listen("tcp", "[::1]:0")
+	if err != nil {
+		t.Skipf("no IPv6 loopback on this host: %v", err)
+	}
+	defer ln.Close()
+	port := ln.Addr().(*net.TCPAddr).Port
+	if !isRunningPort(port) {
+		t.Errorf("isRunningPort(%d) = false for an IPv6-only listener, want true", port)
+	}
+}
+
 func TestAggregateState(t *testing.T) {
 	mk := func(states ...bool) []Service {
 		out := make([]Service, len(states))

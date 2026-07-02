@@ -23,6 +23,34 @@ function cssToken(value: string): string {
   return value.replace(/[^a-z0-9-]/gi, "");
 }
 
+let toastTimer: ReturnType<typeof setTimeout> | undefined;
+
+// showToast surfaces a non-blocking status/error message. Text is set via
+// textContent only (never innerHTML), so backend messages can't inject markup.
+function showToast(message: string, kind: "info" | "error" = "info"): void {
+  const toast = byId("toast");
+  toast.textContent = message;
+  toast.className = "toast " + kind;
+  toast.hidden = false;
+  if (toastTimer !== undefined) {
+    clearTimeout(toastTimer);
+  }
+  toastTimer = setTimeout(() => {
+    toast.hidden = true;
+  }, kind === "error" ? 6000 : 3000);
+}
+
+// errText extracts a human-readable string from an unknown thrown value.
+function errText(err: unknown): string {
+  if (err instanceof Error) {
+    return err.message;
+  }
+  if (typeof err === "string") {
+    return err;
+  }
+  return String(err);
+}
+
 async function init(): Promise<void> {
   wireControls();
   currentServices = (await App.GetServices()) ?? [];
@@ -92,18 +120,20 @@ function buildRow(svc: Service): HTMLDivElement {
   meta.textContent = svc.Meta || portLabel(svc);
   info.append(name, meta);
 
-  const isPort: boolean = svc.Kind === ServiceKind.KindPort;
+  // Only pure KindPort probes are read-only. KindProcess is stoppable (via
+  // PID/supervisor resolution), so its toggle is live.
+  const readonly: boolean = svc.Kind === ServiceKind.KindPort;
   const toggle = document.createElement("label");
-  toggle.className = "toggle" + (isPort ? " readonly" : "");
-  toggle.title = isPort ? "Cannot control — started externally" : "";
+  toggle.className = "toggle" + (readonly ? " readonly" : "");
+  toggle.title = readonly ? "Read-only — declare it in ~/.config/helm/services.json to control it" : "";
 
   const input = document.createElement("input");
   input.type = "checkbox";
   input.checked = svc.Running;
-  input.disabled = isPort;
-  if (!isPort) {
+  input.disabled = readonly;
+  if (!readonly) {
     input.addEventListener("change", () => {
-      void toggleService(svc.ID, input);
+      void toggleService(svc.ID, svc.Name, input);
     });
   }
 
@@ -121,6 +151,8 @@ function portLabel(svc: Service): string {
       ? "docker"
       : svc.Kind === ServiceKind.KindSystemctl
       ? "systemd"
+      : svc.Kind === ServiceKind.KindProcess
+      ? "process"
       : "port";
   return svc.Port ? `${proto} · localhost:${svc.Port}` : proto;
 }
@@ -147,25 +179,41 @@ function updateGlobalStatus(services: Service[]): void {
       : `${running} of ${total} running`;
 }
 
-async function toggleService(id: string, checkbox: HTMLInputElement): Promise<void> {
+async function toggleService(id: string, name: string, checkbox: HTMLInputElement): Promise<void> {
+  const wanted = checkbox.checked;
   try {
     await App.Toggle(id);
   } catch (err: unknown) {
-    // Revert the optimistic toggle on error.
-    checkbox.checked = !checkbox.checked;
+    // Revert the optimistic toggle AND surface the real failure — a silently
+    // reverted checkbox otherwise looks like "nothing happened".
+    checkbox.checked = !wanted;
+    showToast(`${name}: ${errText(err)}`, "error");
     console.error("Toggle failed:", err);
   }
 }
 
 function wireControls(): void {
   byId<HTMLButtonElement>("btn-start-all").addEventListener("click", () => {
-    App.StartAll().catch((err: unknown) => console.error("Start all failed:", err));
+    App.StartAll().catch((err: unknown) => showToast(`Start all: ${errText(err)}`, "error"));
   });
   byId<HTMLButtonElement>("btn-stop-all").addEventListener("click", () => {
-    App.StopAll().catch((err: unknown) => console.error("Stop all failed:", err));
+    App.StopAll().catch((err: unknown) => showToast(`Stop all: ${errText(err)}`, "error"));
   });
   byId<HTMLButtonElement>("btn-close").addEventListener("click", () => {
     App.HideWindow().catch((err: unknown) => console.error("Hide failed:", err));
+  });
+
+  const vramBtn = byId<HTMLButtonElement>("btn-vram");
+  vramBtn.addEventListener("click", async (): Promise<void> => {
+    vramBtn.disabled = true;
+    try {
+      const n = await App.FreeVRAM();
+      showToast(n > 0 ? `Freed VRAM — unloaded ${n} model(s)` : "No models were loaded", "info");
+    } catch (err: unknown) {
+      showToast(`Free VRAM: ${errText(err)}`, "error");
+    } finally {
+      vramBtn.disabled = false;
+    }
   });
 
   const scanBtn = byId<HTMLButtonElement>("btn-scan");
