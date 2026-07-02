@@ -200,3 +200,35 @@ body {
 /* Spinner used by the Scan button while detecting. */
 .ti-spin { animation: ti-spin 0.9s linear infinite; }
 @keyframes ti-spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
+
+/* Non-blocking toast for status/errors (text set via textContent only). */
+.toast {
+  position: fixed; left: 12px; right: 12px; bottom: 46px;
+  padding: 8px 12px; border-radius: 8px;
+  font-size: 12px; line-height: 1.35; color: #fff;
+  background: var(--text2, #444);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.25); z-index: 50;
+}
+.toast[hidden] { display: none; }
+.toast.error { background: var(--red, #c0392b); }
+.toast.info  { background: var(--blue, #2d6cdf); }
+
+/* Update banner — visually distinct from the green/amber/grey service state. */
+.update-banner {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 14px; margin: 0;
+  font-size: 12px; color: #fff;
+  background: linear-gradient(90deg, #6d28d9, #4f46e5);
+}
+.update-banner[hidden] { display: none; }
+.update-text { flex: 1; min-width: 0; }
+.update-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.update-btn {
+  font-family: var(--font); font-size: 11px;
+  padding: 3px 8px; border-radius: 5px;
+  border: 0.5px solid rgba(255,255,255,0.5);
+  background: transparent; color: #fff; cursor: pointer;
+}
+.update-btn.primary { background: rgba(255,255,255,0.18); }
+.update-btn[hidden] { display: none; }
+.app-version { font-size: 10px; color: var(--text3); margin: 0 auto 0 6px; }

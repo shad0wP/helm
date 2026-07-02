@@ -2,16 +2,18 @@ package main
 
 import (
 	"helm/internal/service"
+	"helm/internal/update"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 // App is the service exposed to the frontend. Every exported method is callable
 // from JavaScript through the generated bindings. It is a thin delegation layer
-// over the service.ServiceManager.
+// over the service.ServiceManager and the updater.
 type App struct {
-	svc    *service.ServiceManager
-	window application.Window
+	svc     *service.ServiceManager
+	updater *updater
+	window  application.Window
 }
 
 // GetServices returns the current service snapshot.
@@ -34,4 +36,31 @@ func (a *App) HideWindow() {
 	if a.window != nil {
 		a.window.Hide()
 	}
+}
+
+// GetVersion returns the embedded app version ("dev" for local builds).
+func (a *App) GetVersion() string {
+	if a.updater == nil {
+		return version
+	}
+	return a.updater.version
+}
+
+// CheckForUpdate queries the release source and reports whether a newer version
+// exists. A private/empty releases endpoint is reported as up-to-date, not an
+// error.
+func (a *App) CheckForUpdate() (update.Info, error) { return a.updater.Check() }
+
+// DownloadUpdate downloads the given release asset to ~/Downloads (or temp) and
+// verifies it against the release's published SHA256SUMS, returning the saved
+// path. Fails closed on any checksum mismatch. It does not modify the running
+// install — package-manager-owned installs are never overwritten (self-replace
+// is out of scope; this is the safe download-and-reveal core).
+func (a *App) DownloadUpdate(assetURL string) (string, error) {
+	return a.updater.Download(assetURL)
+}
+
+// OpenReleasePage opens the given URL in the system browser.
+func (a *App) OpenReleasePage(url string) error {
+	return application.Get().Browser.OpenURL(url)
 }

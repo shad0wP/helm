@@ -173,6 +173,26 @@ read-only, under **Auto-detected** (you can't toggle a process Helm didn't start
 | 5000  | Flask / ML App    | `api`          | gray   |
 | 11435 | Ollama (alt)      | `cpu`          | green  |
 
+## Updates
+
+Helm checks for new releases in the background (first check ~30 s after launch, then every 6 h)
+and shows a dismissible banner when a newer version is published; there's also a **Check for
+updates** button, and the installed version is shown in the footer. Downloads are **verified
+against the release `SHA256SUMS`** and fail closed on any mismatch.
+
+> **`TODO(human)` — choose the update channel.** This repo is **private**, so the default source
+> (`https://api.github.com/repos/shad0wP/helm/releases/latest`) returns 404 to the unauthenticated
+> app and the check silently reports "up to date". Pick one and update `DefaultReleasesURL` in
+> [`internal/update/update.go`](internal/update/update.go) (a one-line change):
+> 1. **Make releases public** (repo can stay private) — recommended; the check becomes a plain GET.
+> 2. **Publish a public `latest.json` manifest** (GitHub Pages / gist) and point the URL at it.
+>
+> A token is **never** embedded in the distributed binary.
+
+Self-update is channel-aware and conservative: package-manager installs (`/usr/bin`, …) and the
+macOS `.app` are **never overwritten** — Helm downloads the verified asset to `~/Downloads` and
+you install it yourself. In-place swap is only offered for AppImage / standalone-binary installs.
+
 ## How it works
 
 - **Detection:** `systemctl is-active <unit>` (Linux), `docker inspect` container status, or a

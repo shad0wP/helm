@@ -57,6 +57,9 @@ func setupTray(app *application.App, svc *service.ServiceManager, bound *App) {
 	tray := app.SystemTray.New()
 	tray.SetIcon(iconForState(service.AggregateState(svc.GetServices())))
 	tray.SetTooltip("Helm — Local AI stack")
+	if bound.updater != nil {
+		bound.updater.setTray(tray)
+	}
 
 	// Left-click toggles the attached window, positioned just below the icon.
 	tray.AttachWindow(window).WindowOffset(6)

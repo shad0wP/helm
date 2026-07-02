@@ -3,6 +3,7 @@
 import "@tabler/icons-webfont/dist/tabler-icons.min.css";
 import { App } from "../bindings/helm";
 import { ServiceKind, type Service } from "../bindings/helm/internal/service";
+import { type Info as UpdateInfo } from "../bindings/helm/internal/update";
 import { Events } from "@wailsio/runtime";
 
 let currentServices: Service[] = [];
@@ -25,6 +26,8 @@ function cssToken(value: string): string {
 
 async function init(): Promise<void> {
   wireControls();
+  wireUpdateControls();
+  void showVersion();
   currentServices = (await App.GetServices()) ?? [];
   render(currentServices);
 
@@ -33,6 +36,98 @@ async function init(): Promise<void> {
     currentServices = (ev.data as Service[] | null) ?? [];
     render(currentServices);
   });
+
+  // Background update checker pushes this when a newer release is found.
+  Events.On("update-available", (ev): void => {
+    showUpdateBanner(ev.data as UpdateInfo);
+  });
+}
+
+async function showVersion(): Promise<void> {
+  try {
+    byId("app-version").textContent = "v" + (await App.GetVersion());
+  } catch (err: unknown) {
+    console.error("version:", err);
+  }
+}
+
+// showUpdateBanner renders the dismissible update banner. All text via
+// textContent; the release URL / asset URL are captured in closures, never
+// interpolated into markup.
+function showUpdateBanner(info: UpdateInfo): void {
+  if (!info.updateAvailable) {
+    return;
+  }
+  const banner = byId("update-banner");
+  byId("update-text").textContent = `Helm ${info.latestVersion} is available (you have v${info.currentVersion})`;
+
+  const view = byId<HTMLButtonElement>("update-view");
+  view.hidden = !info.releaseURL;
+  view.onclick = () => {
+    App.OpenReleasePage(info.releaseURL).catch((e: unknown) => showToast(errText(e), "error"));
+  };
+
+  const dl = byId<HTMLButtonElement>("update-download");
+  dl.hidden = !info.assetURL;
+  dl.onclick = () => {
+    dl.disabled = true;
+    App.DownloadUpdate(info.assetURL)
+      .then((path: string) => showToast(`Downloaded & verified → ${path}`, "info"))
+      .catch((e: unknown) => showToast(`Download: ${errText(e)}`, "error"))
+      .finally(() => {
+        dl.disabled = false;
+      });
+  };
+
+  byId<HTMLButtonElement>("update-dismiss").onclick = () => {
+    banner.hidden = true;
+  };
+  banner.hidden = false;
+}
+
+function wireUpdateControls(): void {
+  const checkBtn = byId<HTMLButtonElement>("btn-check-update");
+  checkBtn.addEventListener("click", async (): Promise<void> => {
+    checkBtn.disabled = true;
+    try {
+      const info = await App.CheckForUpdate();
+      if (info.updateAvailable) {
+        showUpdateBanner(info);
+      } else {
+        showToast("You're up to date", "info");
+      }
+    } catch (err: unknown) {
+      showToast(`Update check: ${errText(err)}`, "error");
+    } finally {
+      checkBtn.disabled = false;
+    }
+  });
+}
+
+let toastTimer: ReturnType<typeof setTimeout> | undefined;
+
+// showToast surfaces a non-blocking status/error message (textContent only).
+function showToast(message: string, kind: "info" | "error" = "info"): void {
+  const toast = byId("toast");
+  toast.textContent = message;
+  toast.className = "toast " + kind;
+  toast.hidden = false;
+  if (toastTimer !== undefined) {
+    clearTimeout(toastTimer);
+  }
+  toastTimer = setTimeout(() => {
+    toast.hidden = true;
+  }, kind === "error" ? 6000 : 3000);
+}
+
+function errText(err: unknown): string {
+  if (err instanceof Error) {
+    return err.message;
+  }
+  if (typeof err === "string") {
+    return err;
+  }
+  return String(err);
 }
 
 function render(services: Service[]): void {

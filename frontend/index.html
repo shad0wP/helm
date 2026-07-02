@@ -28,12 +28,30 @@
     </div>
   </header>
 
+  <!-- Update banner (distinct from service-state colours); text set via
+       textContent only. Shown when a newer release is detected. -->
+  <div id="update-banner" class="update-banner" role="status" hidden>
+    <span id="update-text" class="update-text"></span>
+    <span class="update-actions">
+      <button id="update-view" class="update-btn">View release</button>
+      <button id="update-download" class="update-btn primary">Download</button>
+      <button id="update-dismiss" class="update-btn" aria-label="Dismiss">✕</button>
+    </span>
+  </div>
+
   <div id="services-list"></div>
+
+  <!-- Non-blocking status/error surface; text set via textContent only. -->
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
   <footer class="panel-footer">
     <button id="btn-scan" class="footer-btn">
       <i class="ti ti-radar" aria-hidden="true"></i> Scan for services
     </button>
+    <button id="btn-check-update" class="footer-btn">
+      <i class="ti ti-refresh" aria-hidden="true"></i> Check for updates
+    </button>
+    <span id="app-version" class="app-version" title="Installed version"></span>
     <button id="btn-close" class="footer-btn" aria-label="Close">
       <i class="ti ti-x" aria-hidden="true"></i>
     </button>
