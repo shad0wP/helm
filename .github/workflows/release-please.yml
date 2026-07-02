@@ -1,0 +1,125 @@
+name: release-please
+
+# On every push to main, release-please maintains a Release PR from the
+# Conventional Commit history (bumping version.txt + CHANGELOG.md). Merging that
+# PR tags the version and creates a GitHub Release; the gated build jobs below
+# then attach the macOS + Linux artifacts and checksums.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          config-file: .github/release-please-config.json
+          manifest-file: .github/.release-please-manifest.json
+          # Prefer a PAT/App token (RELEASE_PLEASE_TOKEN) if present so releases
+          # can trigger OTHER workflows; otherwise the built-in token works
+          # because the build jobs below run in THIS same workflow run.
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
+
+  build-linux:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ needs.release-please.outputs.tag_name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install GTK4 + WebKitGTK 6.0
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libgtk-4-dev libwebkitgtk-6.0-dev
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          check-latest: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Wails v3 CLI
+        run: go install github.com/wailsapp/wails/v3/cmd/wails3@latest
+
+      - name: Build + package (linux/amd64)
+        run: |
+          set -euxo pipefail
+          VERSION="${TAG#v}"
+          # Keep the package version in lock-step with the release tag.
+          sed -i "s/^version:.*/version: \"$VERSION\"/" build/linux/nfpm/nfpm.yaml
+          wails3 build
+          tar -C bin -czf "bin/helm-${VERSION}-linux-amd64.tar.gz" helm
+          GOARCH=amd64 wails3 tool package -name helm -format archlinux -config ./build/linux/nfpm/nfpm.yaml -out ./bin
+          GOARCH=amd64 wails3 tool package -name helm -format deb       -config ./build/linux/nfpm/nfpm.yaml -out ./bin
+          GOARCH=amd64 wails3 tool package -name helm -format rpm       -config ./build/linux/nfpm/nfpm.yaml -out ./bin
+          mv bin/helm.pkg.tar.zst "bin/helm-${VERSION}-linux-x86_64.pkg.tar.zst"
+          mv bin/helm.deb         "bin/helm-${VERSION}-linux-amd64.deb"
+          mv bin/helm.rpm         "bin/helm-${VERSION}-linux-x86_64.rpm"
+          ( cd bin && sha256sum helm-*-linux-*.tar.gz ./*.pkg.tar.zst ./*.deb ./*.rpm > SHA256SUMS-linux.txt )
+
+      - name: Attach Linux artifacts to the release
+        run: |
+          set -eux
+          cd bin
+          gh release upload "$TAG" \
+            helm-*-linux-amd64.tar.gz ./*.pkg.tar.zst ./*.deb ./*.rpm SHA256SUMS-linux.txt \
+            --repo "$GITHUB_REPOSITORY" --clobber
+
+  build-macos:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    runs-on: macos-14
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ needs.release-please.outputs.tag_name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          check-latest: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Wails v3 CLI
+        run: go install github.com/wailsapp/wails/v3/cmd/wails3@latest
+
+      - name: Build universal .app + archives
+        run: |
+          set -euxo pipefail
+          wails3 task darwin:package:universal
+          codesign --force --deep --sign - bin/helm.app
+          codesign --verify --deep --strict bin/helm.app
+          ditto -c -k --sequesterRsrc --keepParent bin/helm.app "bin/Helm-${TAG}-macos-universal.app.zip"
+          tar -C bin -czf "bin/helm-${TAG}-macos-universal.tar.gz" helm
+          ( cd bin && shasum -a 256 Helm-*-macos-universal.app.zip helm-*-macos-universal.tar.gz > SHA256SUMS-macos.txt )
+
+      - name: Attach macOS artifacts to the release
+        run: |
+          set -eux
+          cd bin
+          gh release upload "$TAG" \
+            Helm-*-macos-universal.app.zip helm-*-macos-universal.tar.gz SHA256SUMS-macos.txt \
+            --repo "$GITHUB_REPOSITORY" --clobber
