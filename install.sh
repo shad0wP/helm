@@ -24,6 +24,19 @@ log() { printf '\033[1;34m==>\033[0m %s\n' "$1" >&2; }
 err() { printf '\033[1;31merror:\033[0m %s\n' "$1" >&2; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || err "required tool '$1' not found"; }
 
+# maybe_sudo runs its arguments under sudo, unless we're already root (common
+# in minimal containers, which often omit sudo entirely since it would be a
+# no-op there) or sudo simply isn't installed.
+maybe_sudo() {
+  if [ "$(id -u)" = "0" ]; then
+    "$@"
+  elif command -v sudo >/dev/null 2>&1; then
+    sudo "$@"
+  else
+    err "this step requires root privileges, and sudo is not available — re-run as root"
+  fi
+}
+
 need curl
 
 if [ "$VERSION" = "latest" ]; then
@@ -112,17 +125,17 @@ case "$OS" in
       ASSET=$(download "linux-x86_64.pkg.tar.zst")
       verify "$ASSET" "SHA256SUMS-linux.txt"
       log "Installing via pacman (gtk4 + webkitgtk-6.0 are pulled in automatically)..."
-      sudo pacman -U --noconfirm "$ASSET"
+      maybe_sudo pacman -U --noconfirm "$ASSET"
     elif command -v apt-get >/dev/null 2>&1; then
       ASSET=$(download "linux-amd64.deb")
       verify "$ASSET" "SHA256SUMS-linux.txt"
       log "Installing via apt..."
-      sudo apt-get install -y "./$ASSET"
+      maybe_sudo apt-get install -y "./$ASSET"
     elif command -v dnf >/dev/null 2>&1; then
       ASSET=$(download "linux-x86_64.rpm")
       verify "$ASSET" "SHA256SUMS-linux.txt"
       log "Installing via dnf..."
-      sudo dnf install -y "./$ASSET"
+      maybe_sudo dnf install -y "./$ASSET"
     else
       log "No supported package manager found (pacman/apt/dnf) — installing the raw binary instead."
       ASSET=$(download "linux-amd64.tar.gz")

@@ -133,17 +133,17 @@ jobs:
       - name: Write in-container verification script
         run: |
           cat > verify-in-container.sh <<'EOS'
-          #!/usr/bin/env bash
-          set -euxo pipefail
-          apt-get update -qq && apt-get install -y --no-install-recommends ca-certificates curl >/dev/null
-
-          # Mask apt-get/dnf/pacman from PATH so install.sh takes the
-          # documented raw-binary fallback branch, without needing an exotic
-          # base image. This distro genuinely has none of pacman/dnf; only
-          # apt-get is masked here.
-          mkdir -p /tmp/nopath
-          export PATH="/tmp/nopath:/usr/bin:/bin"
-          hash -r
+          #!/bin/sh
+          set -eux
+          # Alpine genuinely has none of pacman/apt/dnf (it uses apk), so
+          # install.sh naturally takes the raw-binary fallback branch here —
+          # no PATH-masking tricks needed. install.sh is plain POSIX sh, so it
+          # runs correctly under Alpine's busybox ash. This job only proves
+          # the fallback branch's download+verify+extract logic; it does not
+          # launch the binary, since that fallback path explicitly requires
+          # GTK4/WebKitGTK 6.0 to already be present (documented in
+          # install.sh's own log output) and Alpine is musl libc anyway.
+          apk add --no-cache curl file
 
           HOME=/root HELM_VERSION="$HELM_VERSION" sh /work/install.sh
 
@@ -153,11 +153,11 @@ jobs:
           EOS
           chmod +x verify-in-container.sh
 
-      - name: Run container with apt-get hidden from PATH
+      - name: Run Alpine container (no pacman/apt/dnf present) and verify
         run: |
           set -eux
           docker run --rm -e HELM_VERSION -v "$PWD:/work" -w /work \
-            ubuntu:24.04 bash /work/verify-in-container.sh
+            alpine:latest sh /work/verify-in-container.sh
 
   verify-macos:
     name: install.sh on macOS
