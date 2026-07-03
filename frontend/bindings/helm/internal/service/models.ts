@@ -81,7 +81,12 @@ export enum ServiceKind {
     KindDocker = "docker",
 
     /**
-     * auto-detected via TCP probe, read-only
+     * TCP probe, read-only by declaration
      */
     KindPort = "port",
+
+    /**
+     * TCP probe; stoppable via PID/supervisor
+     */
+    KindProcess = "process",
 };

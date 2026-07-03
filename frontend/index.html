@@ -30,9 +30,15 @@
 
   <div id="services-list"></div>
 
+  <!-- Non-blocking status/error surface; text set via textContent only. -->
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
   <footer class="panel-footer">
     <button id="btn-scan" class="footer-btn">
       <i class="ti ti-radar" aria-hidden="true"></i> Scan for services
+    </button>
+    <button id="btn-vram" class="footer-btn" title="Unload Ollama models to free GPU memory (keeps the daemon running)">
+      <i class="ti ti-brand-nvidia" aria-hidden="true"></i> Free VRAM
     </button>
     <button id="btn-close" class="footer-btn" aria-label="Close">
       <i class="ti ti-x" aria-hidden="true"></i>

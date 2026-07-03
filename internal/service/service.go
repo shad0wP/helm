@@ -27,7 +27,8 @@ type ServiceKind string
 const (
 	KindSystemctl ServiceKind = "systemctl" // Linux only
 	KindDocker    ServiceKind = "docker"    // both platforms
-	KindPort      ServiceKind = "port"      // auto-detected via TCP probe, read-only
+	KindPort      ServiceKind = "port"      // TCP probe, read-only by declaration
+	KindProcess   ServiceKind = "process"   // TCP probe; stoppable via PID/supervisor
 )
 
 // Service is a single controllable (or observable) local AI service.
@@ -77,7 +78,10 @@ func defaultServices() []Service {
 		{ID: "ollama", Name: "Ollama", Kind: ollamaKind, Unit: "ollama", Port: 11434, Icon: "cpu", Color: "green"},
 		{ID: "open-webui", Name: "Open WebUI", Kind: KindDocker, Container: "open-webui", Port: 3000, Icon: "layout-dashboard", Color: "blue"},
 		{ID: "searxng", Name: "SearXNG", Kind: KindDocker, Container: "searxng", Port: 8080, Icon: "search", Color: "amber"},
-		{ID: "hermes", Name: "Hermes Agent", Kind: KindPort, Port: 9119, Icon: "robot", Color: "purple"},
+		// Hermes is a terminal-launched agent: KindProcess makes it stoppable
+		// via PID resolution. Port 9119 is a default — override the whole
+		// entry in ~/.config/helm/services.json if yours differs.
+		{ID: "hermes", Name: "Hermes Agent", Kind: KindProcess, Port: 9119, Icon: "robot", Color: "purple"},
 	}
 }
 
@@ -93,6 +97,14 @@ func isRunningSystemctl(unit string) bool {
 	return strings.TrimSpace(string(out)) == "active"
 }
 
+// isRunningUserSystemctl is the per-user (systemd --user) variant.
+func isRunningUserSystemctl(unit string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
+	defer cancel()
+	out, _ := exec.CommandContext(ctx, "systemctl", "--user", "is-active", unit).Output()
+	return strings.TrimSpace(string(out)) == "active"
+}
+
 // isRunningDocker returns true if the named container's state is "running".
 func isRunningDocker(container string) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
@@ -104,43 +116,82 @@ func isRunningDocker(container string) bool {
 	return strings.TrimSpace(string(out)) == "running"
 }
 
-// isRunningPort attempts a TCP dial to 127.0.0.1:<port> with a 300ms timeout.
+// isRunningPort attempts a TCP dial (300ms timeout) to the port on both
+// loopback stacks: 127.0.0.1 and [::1]. Either success counts — servers bound
+// only to IPv6 loopback were previously invisible.
 func isRunningPort(port int) bool {
-	conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), 300*time.Millisecond)
-	if err != nil {
-		return false
+	for _, host := range []string{"127.0.0.1", "[::1]"} {
+		conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", host, port), 300*time.Millisecond)
+		if err == nil {
+			_ = conn.Close()
+			return true
+		}
 	}
-	_ = conn.Close()
-	return true
+	return false
 }
 
 // checkRunning resolves the live state of a service by its kind.
+//
+// KindSystemctl is layered: the system unit, the per-user unit, and finally
+// the port are all consulted. A manually-run `ollama serve` (unit inactive,
+// port open) therefore reads as running instead of stopped.
 func checkRunning(s Service) bool {
 	switch s.Kind {
 	case KindSystemctl:
-		return isRunningSystemctl(s.Unit)
+		if isRunningSystemctl(s.Unit) || isRunningUserSystemctl(s.Unit) {
+			return true
+		}
+		return s.Port > 0 && isRunningPort(s.Port)
 	case KindDocker:
 		return isRunningDocker(s.Container)
-	case KindPort:
+	case KindPort, KindProcess:
 		return isRunningPort(s.Port)
 	}
 	return false
 }
 
-// controlService starts or stops a service. Port-kind services are read-only.
+// controlService starts or stops a service. Port-kind services are read-only;
+// process-kind services can be stopped (via PID/supervisor attribution) but
+// not started — Helm has no way to know their launch command.
 func controlService(s Service, start bool) error {
 	action := "stop"
 	if start {
 		action = "start"
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), controlTimeout)
-	defer cancel()
 	switch s.Kind {
 	case KindSystemctl:
-		// Requires a NOPASSWD sudoers rule (see README) to run unattended.
-		return exec.CommandContext(ctx, "sudo", "systemctl", action, s.Unit).Run()
+		if start {
+			// Requires a NOPASSWD sudoers rule (see README) to run unattended.
+			ctx, cancel := context.WithTimeout(context.Background(), controlTimeout)
+			defer cancel()
+			return exec.CommandContext(ctx, "sudo", "systemctl", action, s.Unit).Run()
+		}
+		// Stop routes to whoever actually runs it: system unit, user unit, or
+		// — for a manually-launched process detected via the port — the owning
+		// process itself (attributed through its cgroup before signalling).
+		if isRunningSystemctl(s.Unit) {
+			ctx, cancel := context.WithTimeout(context.Background(), controlTimeout)
+			defer cancel()
+			return exec.CommandContext(ctx, "sudo", "systemctl", "stop", s.Unit).Run()
+		}
+		if isRunningUserSystemctl(s.Unit) {
+			ctx, cancel := context.WithTimeout(context.Background(), controlTimeout)
+			defer cancel()
+			return exec.CommandContext(ctx, "systemctl", "--user", "stop", s.Unit).Run()
+		}
+		if s.Port > 0 && isRunningPort(s.Port) {
+			return stopByPort(s.Port, s.Name)
+		}
+		return nil // nothing is running; stopping is a no-op
 	case KindDocker:
+		ctx, cancel := context.WithTimeout(context.Background(), controlTimeout)
+		defer cancel()
 		return exec.CommandContext(ctx, "docker", action, s.Container).Run()
+	case KindProcess:
+		if start {
+			return fmt.Errorf("cannot start %s — Helm does not know its launch command; start it manually", s.Name)
+		}
+		return stopByPort(s.Port, s.Name)
 	default:
 		return fmt.Errorf("cannot control %s — started externally", s.Name)
 	}
@@ -154,6 +205,8 @@ func metaFor(s Service) string {
 		proto = "docker"
 	case KindSystemctl:
 		proto = "systemd"
+	case KindProcess:
+		proto = "process"
 	}
 	state := "stopped"
 	if s.Running {
@@ -189,29 +242,43 @@ func (m *ServiceManager) SetOnChange(fn func([]Service)) {
 	m.mu.Unlock()
 }
 
-// rebuild reconstructs the service list from scratch: every known service plus
-// any open auto-detect port not already owned by a known service.
+// rebuild reconstructs the service list from scratch: built-in defaults merged
+// with the user's ~/.config/helm/services.json, plus auto-detection (the fixed
+// AutoPorts probe list and live process discovery via listener enumeration).
 func (m *ServiceManager) rebuild() {
 	known := defaultServices()
+	if user, err := loadUserServices(); err != nil {
+		log.Printf("helm: ignoring user config: %v", err)
+	} else if len(user) > 0 {
+		known = mergeServices(known, user)
+	}
+
 	rebuilt := make([]Service, 0, len(known)+len(AutoPorts))
-	knownPorts := map[int]bool{}
+	// claimed suppresses auto-detection only for ports whose known service is
+	// actually running — a known-but-stopped service must not mask a live
+	// listener on its port (e.g. ollama unit down, manual `ollama serve` up).
+	claimed := map[int]bool{}
 	for i := range known {
 		known[i].Running = checkRunning(known[i])
 		known[i].Meta = metaFor(known[i])
-		if known[i].Port > 0 {
-			knownPorts[known[i].Port] = true
+		if known[i].Port > 0 && known[i].Running {
+			claimed[known[i].Port] = true
 		}
 		rebuilt = append(rebuilt, known[i])
 	}
+
+	// Fixed probe list. Discovered listeners are KindProcess — stoppable —
+	// because an open port means a live local process.
 	for _, ap := range AutoPorts {
-		if knownPorts[ap.Port] {
+		if claimed[ap.Port] {
 			continue
 		}
 		if isRunningPort(ap.Port) {
+			claimed[ap.Port] = true
 			s := Service{
 				ID:      fmt.Sprintf("auto_%d", ap.Port),
 				Name:    ap.Name,
-				Kind:    KindPort,
+				Kind:    KindProcess,
 				Port:    ap.Port,
 				Running: true,
 				Icon:    ap.Icon,
@@ -222,6 +289,11 @@ func (m *ServiceManager) rebuild() {
 			rebuilt = append(rebuilt, s)
 		}
 	}
+
+	// Real discovery: enumerate listening sockets and surface any process
+	// matching a known local-inference signature.
+	rebuilt = append(rebuilt, discoverProcesses(claimed)...)
+
 	m.mu.Lock()
 	m.services = rebuilt
 	m.mu.Unlock()

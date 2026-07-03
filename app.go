@@ -29,6 +29,10 @@ func (a *App) StopAll() error { return a.svc.StopAll() }
 // Scan re-runs auto-detection and rebuilds the service list.
 func (a *App) Scan() error { return a.svc.Scan() }
 
+// FreeVRAM unloads all models from the local Ollama instance (frees GPU memory
+// without stopping the daemon) and returns how many models were evicted.
+func (a *App) FreeVRAM() (int, error) { return a.svc.FreeVRAM() }
+
 // HideWindow hides the popover panel (used by the footer close button).
 func (a *App) HideWindow() {
 	if a.window != nil {

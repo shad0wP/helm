@@ -17,6 +17,14 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 import * as service$0 from "./internal/service/models.js";
 
 /**
+ * FreeVRAM unloads all models from the local Ollama instance (frees GPU memory
+ * without stopping the daemon) and returns how many models were evicted.
+ */
+export function FreeVRAM(): $CancellablePromise<number> {
+    return $Call.ByID(3532021645);
+}
+
+/**
  * GetServices returns the current service snapshot.
  */
 export function GetServices(): $CancellablePromise<service$0.Service[] | null> {
