@@ -43,9 +43,33 @@ third-party Go dependencies beyond Wails itself.
 
 ## Install
 
-### Download a release (recommended)
+### One-line install (recommended)
 
-Prebuilt, signed-where-possible binaries are attached to the
+```bash
+curl -fsSL https://raw.githubusercontent.com/shad0wP/helm/main/install.sh | sh
+```
+
+Detects your OS — and, on Linux, your package manager (`pacman` / `apt` / `dnf`, falling back to
+a raw binary if none is found) — downloads the matching asset from the
+[latest release](https://github.com/shad0wP/helm/releases/latest), **verifies it against the
+published `SHA256SUMS` before installing anything**, then installs and launches Helm. On Linux the
+distro packages pull in GTK4 + WebKitGTK 6.0 automatically; on macOS it installs to
+`/Applications` and clears the quarantine flag so Gatekeeper doesn't block the first launch.
+
+The script is plain, unobfuscated POSIX `sh` — read it before piping to `sh` if you'd rather:
+[`install.sh`](install.sh). To inspect first instead of piping directly:
+
+```bash
+curl -fsSL -o helm-install.sh https://raw.githubusercontent.com/shad0wP/helm/main/install.sh
+less helm-install.sh && sh helm-install.sh
+```
+
+Helm runs in the **menu bar / system tray** (no Dock or taskbar window). The Linux tray uses
+StatusNotifierItem (SNI), supported natively by KDE Plasma.
+
+### Install manually
+
+Prefer to pick the file yourself? Prebuilt, signed-where-possible binaries are attached to the
 [latest GitHub release](https://github.com/shad0wP/helm/releases/latest). No build toolchain required.
 
 **Linux (x86_64)** — pick the package for your distribution:
@@ -80,9 +104,6 @@ Verify any download against the published checksums:
 sha256sum -c SHA256SUMS-linux.txt      # Linux
 shasum -a 256 -c SHA256SUMS-macos.txt  # macOS
 ```
-
-Helm runs in the **menu bar / system tray** (no Dock or taskbar window). The Linux tray uses
-StatusNotifierItem (SNI), supported natively by KDE Plasma.
 
 ### Build from source
 

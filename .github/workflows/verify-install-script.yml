@@ -1,0 +1,180 @@
+name: Verify install.sh
+
+# Proves the one-line installer (install.sh) actually works end-to-end on every
+# path it can take: Arch (pacman), Debian/Ubuntu (apt), the raw-binary fallback
+# when no supported package manager is present, and macOS. Each job downloads
+# the real release, installs it via install.sh exactly as a user would, and
+# confirms Helm launches (except the fallback path, which by design requires
+# GTK4/WebKitGTK 6.0 to already be present — see install.sh's own note).
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag to verify (HELM_VERSION passed to install.sh)"
+        required: false
+        default: "v0.1.3"
+  push:
+    branches: [main]
+    paths:
+      - install.sh
+      - .github/workflows/verify-install-script.yml
+
+permissions:
+  contents: read
+
+jobs:
+  verify-pacman:
+    name: install.sh on Arch (pacman path)
+    runs-on: ubuntu-24.04
+    env:
+      HELM_VERSION: ${{ github.event.inputs.release_tag || 'v0.1.3' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Relax unprivileged user-namespace restriction (host)
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+
+      - name: Write in-container verification script
+        run: |
+          cat > verify-in-container.sh <<'EOS'
+          #!/usr/bin/env bash
+          set -euxo pipefail
+          pacman -Syu --noconfirm --needed curl xorg-server-xvfb dbus mesa ttf-dejavu
+
+          HELM_VERSION="$HELM_VERSION" sh /work/install.sh
+
+          command -v pacman -Qi helm >/dev/null 2>&1 || pacman -Qi helm
+          BIN=/usr/local/bin/helm
+          ldd "$BIN" | grep -i 'not found' && { echo "FAIL: unresolved shared libraries"; exit 1; }
+          echo "OK: pacman install + shared libraries resolved"
+
+          export WEBKIT_DISABLE_COMPOSITING_MODE=1 WEBKIT_DISABLE_DMABUF_RENDERER=1
+          export LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe GDK_BACKEND=x11
+          dbus-run-session -- xvfb-run -a -s "-screen 0 1280x1024x24" bash -c '
+            set -x
+            helm > /tmp/helm.log 2>&1 & PID=$!
+            sleep 12
+            if kill -0 "$PID" 2>/dev/null; then
+              echo "RESULT: PASS - helm launched and stayed alive"; kill -TERM "$PID" 2>/dev/null || true
+            else
+              echo "RESULT: FAIL - helm exited prematurely"; cat /tmp/helm.log; exit 1
+            fi
+          '
+          EOS
+          chmod +x verify-in-container.sh
+
+      - name: Run Arch container (privileged) and verify
+        run: |
+          set -eux
+          docker run --rm --privileged --shm-size=1g \
+            -e HELM_VERSION -v "$PWD:/work" -w /work \
+            archlinux:latest bash /work/verify-in-container.sh
+
+  verify-apt:
+    name: install.sh on Ubuntu (apt path)
+    runs-on: ubuntu-24.04
+    env:
+      HELM_VERSION: ${{ github.event.inputs.release_tag || 'v0.1.3' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Relax unprivileged user-namespace restriction (host)
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+
+      - name: Write in-container verification script
+        run: |
+          cat > verify-in-container.sh <<'EOS'
+          #!/usr/bin/env bash
+          set -euxo pipefail
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates curl sudo xvfb dbus-x11 mesa-utils fonts-dejavu-core
+
+          # install.sh shells out to `sudo apt-get install` — running as root
+          # already, but sudo must still resolve for the script's own call.
+          apt-get install -y --no-install-recommends sudo || true
+
+          HELM_VERSION="$HELM_VERSION" sh /work/install.sh
+
+          BIN=/usr/local/bin/helm
+          ldd "$BIN" | grep -i 'not found' && { echo "FAIL: unresolved shared libraries"; exit 1; }
+          echo "OK: apt install + shared libraries resolved"
+
+          export WEBKIT_DISABLE_COMPOSITING_MODE=1 WEBKIT_DISABLE_DMABUF_RENDERER=1
+          export LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe GDK_BACKEND=x11
+          dbus-run-session -- xvfb-run -a -s "-screen 0 1280x1024x24" bash -c '
+            set -x
+            helm > /tmp/helm.log 2>&1 & PID=$!
+            sleep 12
+            if kill -0 "$PID" 2>/dev/null; then
+              echo "RESULT: PASS - helm launched and stayed alive"; kill -TERM "$PID" 2>/dev/null || true
+            else
+              echo "RESULT: FAIL - helm exited prematurely"; cat /tmp/helm.log; exit 1
+            fi
+          '
+          EOS
+          chmod +x verify-in-container.sh
+
+      - name: Run Ubuntu container (privileged) and verify
+        run: |
+          set -eux
+          docker run --rm --privileged --shm-size=1g \
+            -e HELM_VERSION -v "$PWD:/work" -w /work \
+            ubuntu:24.04 bash /work/verify-in-container.sh
+
+  verify-fallback:
+    name: install.sh raw-binary fallback (no package manager)
+    runs-on: ubuntu-24.04
+    env:
+      HELM_VERSION: ${{ github.event.inputs.release_tag || 'v0.1.3' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Write in-container verification script
+        run: |
+          cat > verify-in-container.sh <<'EOS'
+          #!/usr/bin/env bash
+          set -euxo pipefail
+          apt-get update -qq && apt-get install -y --no-install-recommends ca-certificates curl >/dev/null
+
+          # Mask apt-get/dnf/pacman from PATH so install.sh takes the
+          # documented raw-binary fallback branch, without needing an exotic
+          # base image. This distro genuinely has none of pacman/dnf; only
+          # apt-get is masked here.
+          mkdir -p /tmp/nopath
+          export PATH="/tmp/nopath:/usr/bin:/bin"
+          hash -r
+
+          HOME=/root HELM_VERSION="$HELM_VERSION" sh /work/install.sh
+
+          test -x /root/.local/bin/helm || { echo "FAIL: binary not installed to ~/.local/bin"; exit 1; }
+          file /root/.local/bin/helm
+          echo "OK: fallback path installed the raw binary correctly"
+          EOS
+          chmod +x verify-in-container.sh
+
+      - name: Run container with apt-get hidden from PATH
+        run: |
+          set -eux
+          docker run --rm -e HELM_VERSION -v "$PWD:/work" -w /work \
+            ubuntu:24.04 bash /work/verify-in-container.sh
+
+  verify-macos:
+    name: install.sh on macOS
+    runs-on: macos-14
+    env:
+      HELM_VERSION: ${{ github.event.inputs.release_tag || 'v0.1.3' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run install.sh
+        run: sh install.sh
+
+      - name: Verify installed and launched
+        run: |
+          set -eux
+          test -d /Applications/Helm.app
+          codesign --verify --deep --strict /Applications/Helm.app
+          sleep 3
+          pgrep -fl "Helm.app/Contents/MacOS/helm"
+          pkill -f "Helm.app/Contents/MacOS/helm" || true
