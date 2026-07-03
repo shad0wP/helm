@@ -71,6 +71,9 @@ func setupTray(app *application.App, svc *service.ServiceManager, bound *App) {
 	tray := app.SystemTray.New()
 	tray.SetIcon(iconForState(service.AggregateState(svc.GetServices())))
 	tray.SetTooltip("Helm — Local AI stack")
+	if bound.updater != nil {
+		bound.updater.setTray(tray)
+	}
 
 	if runtime.GOOS == "darwin" {
 		log.Printf("helm: ui mode=popover (GOOS=%s)", runtime.GOOS)

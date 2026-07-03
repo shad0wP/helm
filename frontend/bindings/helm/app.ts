@@ -4,7 +4,7 @@
 /**
  * App is the service exposed to the frontend. Every exported method is callable
  * from JavaScript through the generated bindings. It is a thin delegation layer
- * over the service.ServiceManager.
+ * over the service.ServiceManager and the updater.
  * @module
  */
 
@@ -15,6 +15,29 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
 import * as service$0 from "./internal/service/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import * as update$0 from "./internal/update/models.js";
+
+/**
+ * CheckForUpdate queries the release source and reports whether a newer version
+ * exists. A private/empty releases endpoint is reported as up-to-date, not an
+ * error.
+ */
+export function CheckForUpdate(): $CancellablePromise<update$0.Info> {
+    return $Call.ByID(2347956003);
+}
+
+/**
+ * DownloadUpdate downloads the given release asset to ~/Downloads (or temp) and
+ * verifies it against the release's published SHA256SUMS, returning the saved
+ * path. Fails closed on any checksum mismatch. It does not modify the running
+ * install — package-manager-owned installs are never overwritten (self-replace
+ * is out of scope; this is the safe download-and-reveal core).
+ */
+export function DownloadUpdate(assetURL: string): $CancellablePromise<string> {
+    return $Call.ByID(115027584, assetURL);
+}
 
 /**
  * FreeVRAM unloads all models from the local Ollama instance (frees GPU memory
@@ -32,10 +55,24 @@ export function GetServices(): $CancellablePromise<service$0.Service[] | null> {
 }
 
 /**
+ * GetVersion returns the embedded app version ("dev" for local builds).
+ */
+export function GetVersion(): $CancellablePromise<string> {
+    return $Call.ByID(1049863377);
+}
+
+/**
  * HideWindow hides the popover panel (used by the footer close button).
  */
 export function HideWindow(): $CancellablePromise<void> {
     return $Call.ByID(542966029);
+}
+
+/**
+ * OpenReleasePage opens the given URL in the system browser.
+ */
+export function OpenReleasePage(url: string): $CancellablePromise<void> {
+    return $Call.ByID(815420409, url);
 }
 
 /**

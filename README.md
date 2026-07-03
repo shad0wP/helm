@@ -202,6 +202,21 @@ show up without any config.
 **Free VRAM.** The footer/menu "Free VRAM" action unloads all resident Ollama models
 (`keep_alive: 0`) to reclaim GPU memory **without** stopping the daemon.
 
+## Updates
+
+Helm checks for new releases in the background (first check ~30 s after launch, then every 6 h)
+and shows a dismissible banner when a newer version is published; there's also a **Check for
+updates** button, and the installed version is shown in the footer. Downloads are **verified
+against the release `SHA256SUMS`** and fail closed on any mismatch.
+
+The update source is `https://api.github.com/repos/shad0wP/helm/releases/latest` — this repo is
+**public**, so that's a plain unauthenticated GET; no token is ever embedded in the distributed
+binary.
+
+Self-update is channel-aware and conservative: package-manager installs (`/usr/bin`, …) and the
+macOS `.app` are **never overwritten** — Helm downloads the verified asset to `~/Downloads` and
+you install it yourself. In-place swap is only offered for AppImage / standalone-binary installs.
+
 ## How it works
 
 - **Detection:** `systemctl is-active <unit>` (Linux), `docker inspect` container status, or a

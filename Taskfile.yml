@@ -5,6 +5,11 @@ vars:
   BIN_DIR: "bin"
   PACKAGE_MANAGER: '{{.PACKAGE_MANAGER | default "npm"}}'
   VITE_PORT: '{{.WAILS_VITE_PORT | default 9245}}'
+  # Single source of truth for the version, injected into the binary via
+  # -ldflags -X main.version (see build/{darwin,linux}/Taskfile.yml). Managed by
+  # release-please. Available to included Taskfiles as a global var.
+  VERSION:
+    sh: cat version.txt 2>/dev/null || echo dev
 
 includes:
   common: ./build/Taskfile.yml
