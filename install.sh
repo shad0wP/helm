@@ -45,9 +45,20 @@ else
   API_URL="https://api.github.com/repos/$REPO/releases/tags/$VERSION"
 fi
 
+# Unauthenticated GitHub API calls are capped at 60/hr per source IP — rarely
+# an issue for a single real install, but shared IPs (CI runners, corporate
+# NAT) can exhaust it. If GITHUB_TOKEN is set (e.g. GitHub Actions provides
+# one to every workflow run for free), use it to raise the limit to 5000/hr.
+# This is metadata-only: the actual asset download below is never rate-limited
+# and never needs a token.
 log "Fetching release metadata ($VERSION)..."
-RELEASE_JSON=$(curl -fsSL -H "Accept: application/vnd.github+json" "$API_URL") \
-  || err "could not fetch release metadata from $API_URL"
+if [ -n "${GITHUB_TOKEN:-}" ]; then
+  RELEASE_JSON=$(curl -fsSL -H "Authorization: Bearer $GITHUB_TOKEN" -H "Accept: application/vnd.github+json" "$API_URL") \
+    || err "could not fetch release metadata from $API_URL"
+else
+  RELEASE_JSON=$(curl -fsSL -H "Accept: application/vnd.github+json" "$API_URL") \
+    || err "could not fetch release metadata from $API_URL (rate-limited? set GITHUB_TOKEN to raise the limit)"
+fi
 
 TAG=$(printf '%s\n' "$RELEASE_JSON" | grep -m1 '"tag_name":' | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/')
 [ -n "$TAG" ] || err "could not determine the release tag from GitHub's response"
