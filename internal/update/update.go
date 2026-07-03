@@ -20,13 +20,9 @@ import (
 	"time"
 )
 
-// DefaultReleasesURL is the update source.
-//
-// TODO(human): choose the update channel. The repo is private, so this
-// unauthenticated GitHub endpoint returns 404 until either the releases are
-// made public (recommended) or this is pointed at a public `latest.json`
-// manifest / small public "helm-releases" repo. Switching is a one-line change
-// here; never embed a token in the distributed binary.
+// DefaultReleasesURL is the update source: the public GitHub Releases API for
+// this repo. shad0wP/helm is a public repository, so this is a plain
+// unauthenticated GET — no token is ever embedded in the distributed binary.
 const DefaultReleasesURL = "https://api.github.com/repos/shad0wP/helm/releases/latest"
 
 // httpTimeout bounds every network call (mirrors the service package's pattern).

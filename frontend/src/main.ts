@@ -132,32 +132,6 @@ function wireUpdateControls(): void {
   });
 }
 
-let toastTimer: ReturnType<typeof setTimeout> | undefined;
-
-// showToast surfaces a non-blocking status/error message (textContent only).
-function showToast(message: string, kind: "info" | "error" = "info"): void {
-  const toast = byId("toast");
-  toast.textContent = message;
-  toast.className = "toast " + kind;
-  toast.hidden = false;
-  if (toastTimer !== undefined) {
-    clearTimeout(toastTimer);
-  }
-  toastTimer = setTimeout(() => {
-    toast.hidden = true;
-  }, kind === "error" ? 6000 : 3000);
-}
-
-function errText(err: unknown): string {
-  if (err instanceof Error) {
-    return err.message;
-  }
-  if (typeof err === "string") {
-    return err;
-  }
-  return String(err);
-}
-
 function render(services: Service[]): void {
   updateGlobalStatus(services);
   const list = byId("services-list");
