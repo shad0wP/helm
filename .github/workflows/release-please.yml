@@ -15,10 +15,20 @@ permissions:
 jobs:
   release-please:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
     steps:
+      # Pinned to v4. This action currently ships a Node.js 20 runtime
+      # manifest, so GitHub Actions emits a "Node.js 20 deprecated" warning
+      # even though the job itself runs fine — it's a known upstream issue in
+      # release-please-action v4 (the action hasn't republished its
+      # action.yml to target Node 24 yet). The runner safely forces execution
+      # onto its bundled Node 24 regardless of the manifest, so this is
+      # cosmetic; no functional impact.
       - uses: googleapis/release-please-action@v4
         id: release
         with:
