@@ -5,6 +5,26 @@ automatically by [release-please](https://github.com/googleapis/release-please)
 from [Conventional Commits](CONTRIBUTING.md) — do not edit released sections by
 hand; new entries are prepended on release.
 
+## [0.2.0](https://github.com/shad0wP/helm/compare/v0.1.3...v0.2.0) (2026-07-04)
+
+
+### Features
+
+* **install:** one-line installer script for macOS and Linux ([0478fe2](https://github.com/shad0wP/helm/commit/0478fe2e497997ec45fbef49f52700a44f22835d))
+* **service:** embedded signature registry + first-run detection wizard ([d00217b](https://github.com/shad0wP/helm/commit/d00217bab35cbd466a435ed699fb3adaac23e3bb))
+* **service:** stop terminal-launched LLMs; robust detection ([4505f20](https://github.com/shad0wP/helm/commit/4505f200b3eef86a9eadeb23898604588c1136c0))
+* **update:** in-app update check, verified download, version embed ([c23508f](https://github.com/shad0wP/helm/commit/c23508fcdb0a6f06dc48e8bf705ce4533ab9dcd9))
+
+
+### Bug Fixes
+
+* **build:** suppress staticcheck false positive on iOS scaffold ([67db87a](https://github.com/shad0wP/helm/commit/67db87a2cc96718498b837702fe1ad92d49ca4c3))
+* dedupe toast helpers in main.ts, resolve DefaultReleasesURL TODO ([5790315](https://github.com/shad0wP/helm/commit/5790315fb628f8bb4c1b3f7369795abb1e62c177))
+* **install:** authenticate GitHub API metadata call when GITHUB_TOKEN is set ([5cb200c](https://github.com/shad0wP/helm/commit/5cb200c9915cebf4cb1bd88c94b18c616f00d655))
+* **install:** skip sudo when already root; fix fallback-path CI test ([067dac7](https://github.com/shad0wP/helm/commit/067dac7fa6d57249122661be06fb424f0b126eb0))
+* **release:** stop demoting feat commits to patch bumps ([788d40e](https://github.com/shad0wP/helm/commit/788d40edefa46c5386221fd7c909ba11c547f597))
+* **tray:** native SNI menu + normal window on Linux; keep macOS popover ([a100ee6](https://github.com/shad0wP/helm/commit/a100ee69372eb5e823ab051640c70e135aa09b40))
+
 ## [0.1.3] - 2026-06-28
 
 macOS deployment readiness for a private, local install.
