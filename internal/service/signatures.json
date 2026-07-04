@@ -1,0 +1,16 @@
+{
+  "signatures": [
+    { "pattern": "\\bollama\\b", "name": "Ollama", "icon": "cpu", "color": "green", "port": 11434 },
+    { "pattern": "\\b(?:llama-server|llama\\.cpp|llamacpp)\\b", "name": "llama.cpp", "icon": "cpu", "color": "gray", "port": 8080 },
+    { "pattern": "\\bvllm\\b", "name": "vLLM", "icon": "cpu", "color": "purple", "port": 8000 },
+    { "pattern": "\\bsglang\\b", "name": "SGLang", "icon": "cpu", "color": "purple", "port": 30000 },
+    { "pattern": "\\bkoboldcpp\\b", "name": "KoboldCpp", "icon": "cpu", "color": "amber", "port": 5001 },
+    { "pattern": "\\btabby(?:api)?\\b", "name": "TabbyAPI", "icon": "cpu", "color": "blue", "port": 5000 },
+    { "pattern": "\\bexllama\\w*\\b", "name": "ExLlamaV2", "icon": "cpu", "color": "blue", "port": 5000 },
+    { "pattern": "\\blm[- ]?studio\\b", "name": "LM Studio", "icon": "cpu", "color": "pink", "port": 1234 },
+    { "pattern": "\\btext-generation\\S*\\b", "name": "text-generation-webui", "icon": "cpu", "color": "amber", "port": 7860 },
+    { "pattern": "\\bjan(?:-server)?\\b", "name": "Jan", "icon": "cpu", "color": "gray", "port": 1337 },
+    { "pattern": "\\blocalai\\b", "name": "LocalAI", "icon": "cpu", "color": "gray", "port": 8080 },
+    { "pattern": "python[0-9.]*\\s+.*\\bserve\\b", "name": "Python server", "icon": "cpu", "color": "gray", "port": 0 }
+  ]
+}

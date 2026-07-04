@@ -47,6 +47,10 @@ func main() {
 	// Background update checks emit "update-available" to the frontend and set a
 	// tray tooltip suffix; the initial check is delayed so launch isn't slowed.
 	updater.Start(app)
+	// One-shot first-run discovery wizard (only offers anything the first time
+	// ~/.config/helm/services.json doesn't exist yet); runs in its own
+	// goroutine so it never blocks startup or the polling loop.
+	go runFirstRunWizard(app, svc)
 
 	if err := app.Run(); err != nil {
 		log.Fatal(err)

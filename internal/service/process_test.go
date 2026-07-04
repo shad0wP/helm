@@ -27,6 +27,18 @@ func TestResolvePIDsForPortLive(t *testing.T) {
 	t.Skipf("resolvePIDsForPort(%d)=%v; own pid %d not found (lsof/ss unavailable?)", port, pids, self)
 }
 
+// TestResolvePIDsForPortNoToolingAvailable forces resolvePIDsForPort down its
+// fallback path (and listListeners' own inner fallback) by hiding lsof/ss from
+// PATH entirely — the real-world "neither tool is installed" case. It must
+// degrade to an empty result, never panic or hang.
+func TestResolvePIDsForPortNoToolingAvailable(t *testing.T) {
+	t.Setenv("PATH", t.TempDir()) // an empty directory: no lsof, no ss, nothing
+	got := resolvePIDsForPort(1)
+	if len(got) != 0 {
+		t.Errorf("resolvePIDsForPort with no tooling available = %v, want empty", got)
+	}
+}
+
 func TestParseSSListeners(t *testing.T) {
 	out := `LISTEN 0 4096  127.0.0.1:11434 0.0.0.0:* users:(("ollama",pid=612,fd=3))
 LISTEN 0 511   [::1]:8188      [::]:*    users:(("python3",pid=999,fd=7))

@@ -288,34 +288,31 @@ func stopByPort(port int, name string) error {
 	return nil
 }
 
-// inferenceSigRe matches command names/lines of known local-inference servers.
-var inferenceSigRe = regexp.MustCompile(`(?i)\b(ollama|llama-server|llama\.cpp|llamacpp|vllm|sglang|tabby(api)?|exllama\w*|koboldcpp|lmstudio|lm-studio|text-generation\S*)\b|python[0-9.]*\s+.*\bserve\b`)
-
-// matchesInferenceSignature reports whether a process command looks like a
-// local LLM/inference server. Pure function; unit-tested.
-func matchesInferenceSignature(command string) bool {
-	return inferenceSigRe.MatchString(command)
-}
-
 // discoverProcesses enumerates listening sockets and returns a KindProcess
-// service for every process matching a known inference signature, skipping
-// ports already claimed by the given set.
+// service for every process matching a known inference signature (see
+// signatures.go / signatures.json), skipping ports already claimed by the
+// given set. Matched services use the signature's display name/icon/color;
+// the port is always the one the listener was actually found on.
 func discoverProcesses(claimed map[int]bool) []Service {
 	var out []Service
 	seen := map[int]bool{}
 	for _, l := range listListeners() {
-		if claimed[l.Port] || seen[l.Port] || !matchesInferenceSignature(l.Command) {
+		if claimed[l.Port] || seen[l.Port] {
+			continue
+		}
+		sig, ok := matchSignature(l.Command)
+		if !ok {
 			continue
 		}
 		seen[l.Port] = true
 		s := Service{
 			ID:      fmt.Sprintf("proc_%d", l.Port),
-			Name:    fmt.Sprintf("%s (:%d)", l.Command, l.Port),
+			Name:    fmt.Sprintf("%s (:%d)", sig.Name, l.Port),
 			Kind:    KindProcess,
 			Port:    l.Port,
 			Running: true,
-			Icon:    "cpu",
-			Color:   "gray",
+			Icon:    sig.Icon,
+			Color:   sig.Color,
 			Auto:    true,
 		}
 		s.Meta = metaFor(s)

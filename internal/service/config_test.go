@@ -1,6 +1,63 @@
 package service
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"runtime"
+	"testing"
+)
+
+func TestLoadUserServices(t *testing.T) {
+	t.Run("absent file returns nil, nil (not an error)", func(t *testing.T) {
+		t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+		got, err := loadUserServices()
+		if got != nil || err != nil {
+			t.Errorf("loadUserServices() = %v, %v; want nil, nil", got, err)
+		}
+	})
+
+	t.Run("valid file is parsed", func(t *testing.T) {
+		dir := t.TempDir()
+		t.Setenv("XDG_CONFIG_HOME", dir)
+		path := filepath.Join(dir, "helm", "services.json")
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(`{"services":[{"id":"x","name":"X","kind":"port","port":1}]}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		got, err := loadUserServices()
+		if err != nil || len(got) != 1 || got[0].ID != "x" {
+			t.Errorf("loadUserServices() = %+v, %v", got, err)
+		}
+	})
+
+	t.Run("unreadable file is a real error, not treated as absent", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("POSIX permission bits don't apply on Windows")
+		}
+		dir := t.TempDir()
+		t.Setenv("XDG_CONFIG_HOME", dir)
+		path := filepath.Join(dir, "helm", "services.json")
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(`{"services":[]}`), 0o000); err != nil {
+			t.Fatal(err)
+		}
+		defer os.Chmod(path, 0o644) // restore so TempDir cleanup can remove it
+		if os.Geteuid() == 0 {
+			t.Skip("root ignores permission bits, so this case can't be exercised")
+		}
+		got, err := loadUserServices()
+		if err == nil {
+			t.Error("expected a real error for a permission-denied config file, got nil")
+		}
+		if got != nil {
+			t.Errorf("expected nil services on error, got %+v", got)
+		}
+	})
+}
 
 func TestParseUserConfig(t *testing.T) {
 	t.Run("valid multi-kind config", func(t *testing.T) {
