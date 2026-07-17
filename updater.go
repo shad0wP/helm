@@ -83,15 +83,24 @@ func (u *updater) checkOnce(app *application.App) {
 	}
 	if info.UpdateAvailable {
 		app.Event.Emit("update-available", info)
-		if u.tray != nil {
-			u.tray.SetTooltip("Helm — Local AI stack · update available")
+		u.mu.RLock()
+		tray := u.tray
+		u.mu.RUnlock()
+		if tray != nil {
+			tray.SetTooltip("Helm — Local AI stack · update available")
 		}
 		log.Printf("helm: update available: %s (current %s)", info.LatestVersion, info.CurrentVersion)
 	}
 }
 
-// setTray lets setupTray register the tray for tooltip updates.
-func (u *updater) setTray(tray *application.SystemTray) { u.tray = tray }
+// setTray lets setupTray register the tray for tooltip updates. Guarded by
+// u.mu: the background check goroutine reads u.tray, so the write must not
+// rely on setupTray happening to run before Start's first timer fires.
+func (u *updater) setTray(tray *application.SystemTray) {
+	u.mu.Lock()
+	u.tray = tray
+	u.mu.Unlock()
+}
 
 // Check runs an update check now and caches the result.
 func (u *updater) Check() (update.Info, error) {

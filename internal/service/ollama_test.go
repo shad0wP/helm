@@ -63,4 +63,29 @@ func TestFreeVRAM(t *testing.T) {
 			t.Error("expected an error on HTTP 500")
 		}
 	})
+
+	t.Run("malformed ps JSON is an error, not a silent zero", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte(`{"models": [{"name": `)) // truncated mid-stream
+		}))
+		defer srv.Close()
+		if _, err := freeVRAM(srv.URL); err == nil {
+			t.Error("expected a decode error for truncated /api/ps JSON")
+		}
+	})
+
+	t.Run("unload failure mid-batch surfaces the error", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/api/ps":
+				_, _ = w.Write([]byte(`{"models":[{"name":"llama3:8b"}]}`))
+			case "/api/generate":
+				w.WriteHeader(http.StatusInternalServerError) // eviction rejected
+			}
+		}))
+		defer srv.Close()
+		if _, err := freeVRAM(srv.URL); err == nil {
+			t.Error("expected an error when a model eviction fails")
+		}
+	})
 }

@@ -111,6 +111,31 @@ func TestSaveFirstRunConfig(t *testing.T) {
 		}
 	})
 
+	t.Run("errors when services.json exists as a directory", func(t *testing.T) {
+		dir := t.TempDir()
+		t.Setenv("XDG_CONFIG_HOME", dir)
+		path := filepath.Join(dir, "helm", "services.json")
+		if err := os.MkdirAll(path, 0o755); err != nil { // the config PATH is a directory
+			t.Fatal(err)
+		}
+		candidates := []Service{{ID: "proc_8000", Name: "vLLM (:8000)", Kind: KindProcess, Port: 8000}}
+		if err := SaveFirstRunConfig(candidates); err == nil {
+			t.Error("expected an error when services.json is a directory, got nil")
+		}
+	})
+
+	t.Run("errors when the config directory path is blocked by a file", func(t *testing.T) {
+		dir := t.TempDir()
+		t.Setenv("XDG_CONFIG_HOME", dir)
+		if err := os.WriteFile(filepath.Join(dir, "helm"), []byte("not a dir"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		candidates := []Service{{ID: "proc_8000", Name: "vLLM (:8000)", Kind: KindProcess, Port: 8000}}
+		if err := SaveFirstRunConfig(candidates); err == nil {
+			t.Error("expected an error when ~/.config/helm is a regular file, got nil")
+		}
+	})
+
 	t.Run("merges with an existing user config instead of clobbering it", func(t *testing.T) {
 		dir := t.TempDir()
 		t.Setenv("XDG_CONFIG_HOME", dir)
@@ -145,6 +170,22 @@ func TestSaveFirstRunConfig(t *testing.T) {
 			t.Errorf("expected both my-unit and proc_8000 present, got %+v", got)
 		}
 	})
+}
+
+// TestWizardWithoutAnyHome: with neither XDG_CONFIG_HOME nor HOME resolvable
+// there is no config path at all. The wizard must degrade safely — never offer
+// itself (NeedsFirstRunScan false) and refuse to save rather than writing to a
+// junk location.
+func TestWizardWithoutAnyHome(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("HOME", "")
+	if NeedsFirstRunScan() {
+		t.Error("NeedsFirstRunScan() = true with no resolvable home, want false (fail safe)")
+	}
+	candidates := []Service{{ID: "proc_8000", Name: "vLLM (:8000)", Kind: KindProcess, Port: 8000}}
+	if err := SaveFirstRunConfig(candidates); err == nil {
+		t.Error("SaveFirstRunConfig with no resolvable home = nil, want error")
+	}
 }
 
 // TestDiscoverFirstRunCandidates is a light smoke test (like the rest of the

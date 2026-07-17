@@ -84,6 +84,54 @@ python3   999 kn      7u  IPv6    0x2      0t0  TCP [::1]:8188 (LISTEN)`
 	}
 }
 
+// TestParseLsofListenersSpacedCommand: macOS command names may contain spaces
+// ("LM Studio", "Code Helper"). Left-anchored field parsing shifts every
+// column for such lines and silently drops the process — which made LM Studio
+// undiscoverable on macOS despite having a registry entry.
+func TestParseLsofListenersSpacedCommand(t *testing.T) {
+	out := `COMMAND   PID USER   FD   TYPE DEVICE SIZE/OFF NODE NAME
+LM Studio 745 kn     12u  IPv6    0x3      0t0  TCP *:1234 (LISTEN)`
+	got := parseLsofListeners(out)
+	if len(got) != 1 {
+		t.Fatalf("spaced command name was dropped: got %d listeners, want 1: %+v", len(got), got)
+	}
+	if got[0].Command != "LM Studio" || got[0].PID != 745 || got[0].Port != 1234 {
+		t.Errorf("listener = %+v, want command %q pid 745 port 1234", got[0], "LM Studio")
+	}
+}
+
+// TestParseSSListenersAdversarial feeds malformed-but-plausible ss output:
+// out-of-range ports and a PID that overflows int. Every such line must be
+// skipped, never turned into a bogus listener or a panic.
+func TestParseSSListenersAdversarial(t *testing.T) {
+	out := `LISTEN 0 4096 127.0.0.1:99999 0.0.0.0:* users:(("badport",pid=10,fd=3))
+LISTEN 0 4096 127.0.0.1:0 0.0.0.0:* users:(("zeroport",pid=11,fd=3))
+LISTEN 0 4096 127.0.0.1:65535 0.0.0.0:* users:(("edge",pid=12,fd=3))
+LISTEN 0 4096 127.0.0.1:8000 0.0.0.0:* users:(("hugepid",pid=99999999999999999999,fd=3))`
+	got := parseSSListeners(out)
+	if len(got) != 1 {
+		t.Fatalf("got %d listeners, want only the valid boundary one: %+v", len(got), got)
+	}
+	if got[0].Command != "edge" || got[0].Port != 65535 {
+		t.Errorf("listener = %+v, want edge:65535 (inclusive upper boundary)", got[0])
+	}
+}
+
+// TestParseLsofListenersAdversarial: same attack against the lsof parser.
+func TestParseLsofListenersAdversarial(t *testing.T) {
+	out := `badport 612 kn 3u IPv4 0x1 0t0 TCP 127.0.0.1:99999 (LISTEN)
+zeroport 613 kn 3u IPv4 0x1 0t0 TCP 127.0.0.1:0 (LISTEN)
+edge 614 kn 3u IPv4 0x1 0t0 TCP 127.0.0.1:65535 (LISTEN)
+hugepid 99999999999999999999 kn 3u IPv4 0x1 0t0 TCP 127.0.0.1:8000 (LISTEN)`
+	got := parseLsofListeners(out)
+	if len(got) != 1 {
+		t.Fatalf("got %d listeners, want only the valid boundary one: %+v", len(got), got)
+	}
+	if got[0].Command != "edge" || got[0].Port != 65535 {
+		t.Errorf("listener = %+v, want edge:65535 (inclusive upper boundary)", got[0])
+	}
+}
+
 func TestAttributeCgroup(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -129,24 +177,5 @@ func TestAttributeCgroup(t *testing.T) {
 				t.Errorf("attributeCgroup = %+v, want method=%q target=%q", got, tt.wantMethod, tt.wantTarget)
 			}
 		})
-	}
-}
-
-func TestMatchesInferenceSignature(t *testing.T) {
-	yes := []string{
-		"ollama", "llama-server", "vllm", "sglang",
-		"koboldcpp", "python3 -m vllm.entrypoints.openai.api_server",
-		"python -m http.server serve", "tabbyAPI", "text-generation-launcher",
-	}
-	no := []string{"", "sshd", "postgres", "nginx", "chrome", "code"}
-	for _, c := range yes {
-		if !matchesInferenceSignature(c) {
-			t.Errorf("matchesInferenceSignature(%q) = false, want true", c)
-		}
-	}
-	for _, c := range no {
-		if matchesInferenceSignature(c) {
-			t.Errorf("matchesInferenceSignature(%q) = true, want false", c)
-		}
 	}
 }

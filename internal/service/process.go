@@ -57,7 +57,7 @@ func parseSSListeners(out string) []listener {
 			continue
 		}
 		port, err := strconv.Atoi(local[idx+1:])
-		if err != nil {
+		if err != nil || port < 1 || port > 65535 {
 			continue
 		}
 		m := ssListenerRe.FindStringSubmatch(line)
@@ -84,23 +84,36 @@ func parseLsofListeners(out string) []listener {
 	var res []listener
 	for _, line := range strings.Split(out, "\n") {
 		fields := strings.Fields(line)
-		if len(fields) < 9 || fields[0] == "COMMAND" {
+		n := len(fields)
+		if n < 9 || fields[0] == "COMMAND" {
 			continue
 		}
-		pid, err := strconv.Atoi(fields[1])
+		// COMMAND may itself contain spaces ("LM Studio"), which shifts every
+		// column when splitting on whitespace. The 7 columns PID..NODE plus the
+		// address are fixed-width single fields, so anchor on the right-hand
+		// end instead: NAME is "<addr> (LISTEN)" under -sTCP:LISTEN.
+		addrIdx := n - 1
+		if fields[n-1] == "(LISTEN)" {
+			addrIdx = n - 2
+		}
+		pidIdx := addrIdx - 7
+		if pidIdx < 1 {
+			continue
+		}
+		pid, err := strconv.Atoi(fields[pidIdx])
 		if err != nil {
 			continue
 		}
-		name := fields[8]
+		name := fields[addrIdx]
 		idx := strings.LastIndex(name, ":")
 		if idx < 0 {
 			continue
 		}
 		port, err := strconv.Atoi(name[idx+1:])
-		if err != nil {
+		if err != nil || port < 1 || port > 65535 {
 			continue
 		}
-		res = append(res, listener{Port: port, PID: pid, Command: fields[0]})
+		res = append(res, listener{Port: port, PID: pid, Command: strings.Join(fields[:pidIdx], " ")})
 	}
 	return res
 }

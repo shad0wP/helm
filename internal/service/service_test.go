@@ -5,6 +5,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -234,12 +235,6 @@ func TestDefaultServices(t *testing.T) {
 	}
 }
 
-func TestIsMacOS(t *testing.T) {
-	if got, want := isMacOS(), runtime.GOOS == "darwin"; got != want {
-		t.Errorf("isMacOS() = %v, want %v (GOOS=%s)", got, want, runtime.GOOS)
-	}
-}
-
 func TestScanPopulatesKnownServicesAndNotifies(t *testing.T) {
 	m := &ServiceManager{}
 	calls := 0
@@ -388,4 +383,75 @@ func TestStopPollingIsSafeAndIdempotent(t *testing.T) {
 	// Starting after a stop must not hang or leak: the goroutine sees a closed
 	// stop channel and returns immediately.
 	m.StartPolling(10 * time.Millisecond)
+}
+
+// TestPollOnceSurvivesPanickingCallback: the recover() in pollOnce exists so a
+// bad onChange callback can never kill the long-lived poll loop. Prove not
+// just that the panic is swallowed, but that the manager stays fully usable
+// afterwards — state updates and later notifications must still work.
+func TestPollOnceSurvivesPanickingCallback(t *testing.T) {
+	ln, port := freePort(t)
+	m := &ServiceManager{services: []Service{
+		{ID: "p", Kind: KindPort, Port: port, Running: false},
+	}}
+	m.SetOnChange(func([]Service) { panic("callback exploded") })
+
+	m.pollOnce() // stopped->running fires the panicking callback; must not propagate
+	if !m.GetServices()[0].Running {
+		t.Fatal("state update was lost when the callback panicked")
+	}
+
+	calls := 0
+	m.SetOnChange(func([]Service) { calls++ })
+	ln.Close()
+	m.pollOnce() // running->stopped: the replacement callback must fire normally
+	if calls != 1 {
+		t.Errorf("onChange calls after recovery = %d, want 1", calls)
+	}
+	if m.GetServices()[0].Running {
+		t.Error("service still marked running after the listener closed")
+	}
+}
+
+// TestServiceManagerConcurrentAccess hammers every public entry point from
+// multiple goroutines while the poller runs, under -race. This is the guard
+// against locking regressions in refresh/GetServices/SetOnChange/find; the
+// final assertion proves the snapshot survives uncorrupted.
+func TestServiceManagerConcurrentAccess(t *testing.T) {
+	ln, port := freePort(t)
+	ln.Close() // guaranteed-closed port: probes fail fast, no state flapping
+	m := &ServiceManager{services: []Service{
+		{ID: "x", Kind: KindPort, Port: port},
+	}}
+	m.SetOnChange(func([]Service) {})
+	m.StartPolling(time.Millisecond)
+
+	var wg sync.WaitGroup
+	for w := 0; w < 8; w++ {
+		wg.Add(1)
+		go func(w int) {
+			defer wg.Done()
+			for i := 0; i < 200; i++ {
+				switch (w + i) % 5 {
+				case 0:
+					_ = m.GetServices()
+				case 1:
+					m.SetOnChange(func([]Service) {})
+				case 2:
+					_ = m.refresh()
+				case 3:
+					_, _ = m.find("x")
+				case 4:
+					_ = m.Toggle("missing") // error path only; no side effects
+				}
+			}
+		}(w)
+	}
+	wg.Wait()
+	m.StopPolling()
+
+	got := m.GetServices()
+	if len(got) != 1 || got[0].ID != "x" {
+		t.Errorf("snapshot corrupted after concurrent access: %+v", got)
+	}
 }

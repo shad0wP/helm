@@ -155,4 +155,26 @@ func TestBundledSignatureRegistry(t *testing.T) {
 			t.Errorf("matchSignature(%q).Name = %q, want %q", command, sig.Name, wantName)
 		}
 	}
+
+	// Full command lines must also match (the wizard/docs describe matching
+	// against whatever ss/lsof reports, which may include arguments).
+	for _, command := range []string{
+		"llama-server", "sglang", "tabbyAPI",
+		"python3 -m vllm.entrypoints.openai.api_server",
+		"python -m http.server serve", "text-generation-launcher",
+	} {
+		if !matchesInferenceSignature(command) {
+			t.Errorf("matchesInferenceSignature(%q) = false, want true", command)
+		}
+	}
+
+	// Common daemons that also hold listening sockets must NOT be recognized —
+	// a false positive here surfaces a bogus "AI service" in the tray. A bare
+	// "python3" (what ss actually reports for a python-based server) must not
+	// match either: the python catch-all requires visible arguments.
+	for _, command := range []string{"", "sshd", "postgres", "nginx", "chrome", "code", "python3"} {
+		if matchesInferenceSignature(command) {
+			t.Errorf("matchesInferenceSignature(%q) = true, want false", command)
+		}
+	}
 }

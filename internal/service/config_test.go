@@ -100,6 +100,12 @@ func TestParseUserConfig(t *testing.T) {
 			"docker no container": `{"services":[{"id":"x","name":"X","kind":"docker"}]}`,
 			"process bad port":    `{"services":[{"id":"x","name":"X","kind":"process","port":0}]}`,
 			"port out of range":   `{"services":[{"id":"x","name":"X","kind":"port","port":70000}]}`,
+			"port just past max":  `{"services":[{"id":"x","name":"X","kind":"port","port":65536}]}`,
+			// Port bounds must hold for EVERY kind, not just port/process —
+			// a negative or absurd port on a systemctl/docker entry would
+			// otherwise flow into display strings and TCP dial attempts.
+			"systemctl negative port": `{"services":[{"id":"x","name":"X","kind":"systemctl","unit":"u","port":-5}]}`,
+			"docker port too high":    `{"services":[{"id":"x","name":"X","kind":"docker","container":"c","port":70000}]}`,
 		}
 		for name, raw := range cases {
 			t.Run(name, func(t *testing.T) {
@@ -114,6 +120,21 @@ func TestParseUserConfig(t *testing.T) {
 		got, err := parseUserConfig([]byte(`{"services":[]}`))
 		if err != nil || len(got) != 0 {
 			t.Errorf("got %v, %v; want empty, nil", got, err)
+		}
+	})
+
+	t.Run("port boundaries accepted", func(t *testing.T) {
+		// 65535 is a legal port; 0 is legal for kinds that don't require one.
+		raw := []byte(`{"services":[
+			{"id":"max","name":"Max","kind":"port","port":65535},
+			{"id":"noport","name":"NoPort","kind":"systemctl","unit":"u","port":0}
+		]}`)
+		got, err := parseUserConfig(raw)
+		if err != nil {
+			t.Fatalf("boundary config rejected: %v", err)
+		}
+		if len(got) != 2 || got[0].Port != 65535 || got[1].Port != 0 {
+			t.Errorf("boundary config parsed wrong: %+v", got)
 		}
 	})
 }
@@ -156,6 +177,20 @@ func TestMergeServices(t *testing.T) {
 		got := mergeServices(defaults, nil)
 		if len(got) != 2 {
 			t.Errorf("got %d, want 2", len(got))
+		}
+	})
+
+	t.Run("duplicate ids in user config: last one wins, no duplicates in output", func(t *testing.T) {
+		user := []Service{
+			{ID: "vllm", Name: "First", Kind: KindProcess, Port: 8000},
+			{ID: "vllm", Name: "Second", Kind: KindProcess, Port: 8001},
+		}
+		got := mergeServices(defaults, user)
+		if len(got) != 3 {
+			t.Fatalf("got %d services, want 3 (duplicate id must collapse): %+v", len(got), got)
+		}
+		if got[2].Name != "Second" || got[2].Port != 8001 {
+			t.Errorf("duplicate id resolution = %+v, want the last entry to win", got[2])
 		}
 	})
 }

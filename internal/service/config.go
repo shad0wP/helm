@@ -80,6 +80,13 @@ func parseUserConfig(raw []byte) ([]Service, error) {
 		default:
 			return nil, fmt.Errorf("services[%d] (%s): unknown kind %q", i, us.ID, us.Kind)
 		}
+		// Port bounds hold for every kind (0 = "none declared"); port/process
+		// kinds additionally require one to be present, checked below. Without
+		// this, a negative or absurd port on a systemctl/docker entry flows
+		// into display strings and TCP dial attempts.
+		if us.Port < 0 || us.Port > 65535 {
+			return nil, fmt.Errorf("services[%d] (%s): port %d is out of range (0-65535)", i, us.ID, us.Port)
+		}
 		switch kind {
 		case KindSystemctl:
 			if us.Unit == "" {

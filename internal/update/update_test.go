@@ -39,6 +39,17 @@ func TestCompareVersions(t *testing.T) {
 		{"1.2.3-rc1", "1.2.3-rc2", -1},
 		{"1.2.3+build5", "1.2.3", 0}, // build metadata ignored
 		{"v0.1.4", "v0.1.3", 1},
+		// Adversarial/degenerate inputs: garbage must degrade to 0.0.0 and
+		// compare deterministically, never panic. (A malicious or broken
+		// release feed controls one side of this comparison.)
+		{"", "", 0},
+		{"garbage", "0.0.0", 0},
+		{"0.0.0", "", 0},
+		{"v", "0.0.0", 0},
+		{"..", "0.0.0", 0},
+		{"1.2.3-", "1.2.3", 0},                      // empty pre-release == final
+		{"999999999.999999999.999999999", "1.0", 1}, // huge components don't overflow int
+		{"0.10.0", "0.9.0", 1},                      // per-component numeric, not lexical
 	}
 	for _, tt := range tests {
 		if got := compareVersions(tt.a, tt.b); got != tt.want {
@@ -85,6 +96,29 @@ func TestParseChecksums(t *testing.T) {
 	}
 	if len(got) != 2 {
 		t.Errorf("parsed %d entries, want 2", len(got))
+	}
+}
+
+// TestParseChecksumsAdversarial: checksum files come off the network, so the
+// parser must tolerate hostile or platform-mangled content — CRLF endings,
+// path-prefixed names (keyed by basename so lookups still match), mixed-case
+// hex (normalized), and non-hex "checksums" (dropped, so verification later
+// fails closed rather than comparing against garbage).
+func TestParseChecksumsAdversarial(t *testing.T) {
+	data := "ABCDEF12  mixed-case.tar.gz\r\n" +
+		"deadbeef  dist/subdir/pathy.tar.gz\r\n" +
+		"nothexatall  bad-sum.tar.gz\n" +
+		"deadbeef too many fields here\n" +
+		"\n"
+	got := parseChecksums(data)
+	if got["mixed-case.tar.gz"] != "abcdef12" {
+		t.Errorf("mixed-case hex = %q, want normalized lowercase abcdef12", got["mixed-case.tar.gz"])
+	}
+	if got["pathy.tar.gz"] != "deadbeef" {
+		t.Errorf("path-prefixed entry = %q, want keyed by basename", got["pathy.tar.gz"])
+	}
+	if len(got) != 2 {
+		t.Errorf("parsed %d entries, want exactly 2 (non-hex and malformed lines dropped): %v", len(got), got)
 	}
 }
 
@@ -163,6 +197,34 @@ func TestCheck(t *testing.T) {
 		defer srv.Close()
 		if _, err := Check(context.Background(), srv.URL, "0.1.3"); err == nil {
 			t.Error("expected rate-limit error on 403")
+		}
+	})
+
+	t.Run("malformed release JSON is an error, not a phantom update", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte(`{"tag_name": "v9.9.9", "assets": [`)) // truncated
+		}))
+		defer srv.Close()
+		info, err := Check(context.Background(), srv.URL, "0.1.3")
+		if err == nil {
+			t.Error("expected a parse error for truncated release JSON")
+		}
+		if info.UpdateAvailable {
+			t.Error("a parse failure must never report an update as available")
+		}
+	})
+
+	t.Run("empty tag_name is not an update", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte(`{"tag_name":"","assets":[]}`))
+		}))
+		defer srv.Close()
+		info, err := Check(context.Background(), srv.URL, "0.1.3")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if info.UpdateAvailable {
+			t.Error("an empty tag_name must not be offered as an update")
 		}
 	})
 }
