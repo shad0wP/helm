@@ -5,6 +5,18 @@ automatically by [release-please](https://github.com/googleapis/release-please)
 from [Conventional Commits](CONTRIBUTING.md) — do not edit released sections by
 hand; new entries are prepended on release.
 
+## [0.3.0](https://github.com/shad0wP/helm/compare/v0.2.0...v0.3.0) (2026-07-19)
+
+
+### Features
+
+* **cli:** helm-cli — terminal face of the same product; OpenClaw; polkit ([ab5242c](https://github.com/shad0wP/helm/commit/ab5242cf68622cb3bd3d7a68de04bd60e0309fed))
+
+
+### Bug Fixes
+
+* **service:** harden parsers against malformed input; adversarial test sweep ([9f3bb94](https://github.com/shad0wP/helm/commit/9f3bb940ccff800c62a94102fe38a2f3f28ff1e6))
+
 ## [0.2.0](https://github.com/shad0wP/helm/compare/v0.1.3...v0.2.0) (2026-07-04)
 
 
