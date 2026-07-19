@@ -75,7 +75,9 @@ jobs:
           # Keep the package version in lock-step with the release tag.
           sed -i "s/^version:.*/version: \"$VERSION\"/" build/linux/nfpm/nfpm.yaml
           wails3 build
-          tar -C bin -czf "bin/helm-${VERSION}-linux-amd64.tar.gz" helm
+          # helm-cli: the terminal face of the same product (static, no GUI deps).
+          CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o bin/helm-cli ./cmd/helm-cli
+          tar -C bin -czf "bin/helm-${VERSION}-linux-amd64.tar.gz" helm helm-cli
           GOARCH=amd64 wails3 tool package -name helm -format archlinux -config ./build/linux/nfpm/nfpm.yaml -out ./bin
           GOARCH=amd64 wails3 tool package -name helm -format deb       -config ./build/linux/nfpm/nfpm.yaml -out ./bin
           GOARCH=amd64 wails3 tool package -name helm -format rpm       -config ./build/linux/nfpm/nfpm.yaml -out ./bin
@@ -123,7 +125,13 @@ jobs:
           codesign --force --deep --sign - bin/helm.app
           codesign --verify --deep --strict bin/helm.app
           ditto -c -k --sequesterRsrc --keepParent bin/helm.app "bin/Helm-${TAG}-macos-universal.app.zip"
-          tar -C bin -czf "bin/helm-${TAG}-macos-universal.tar.gz" helm
+          # helm-cli: universal binary of the same product's terminal face.
+          VERSION="${TAG#v}"
+          CGO_ENABLED=0 GOARCH=amd64 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o bin/helm-cli-amd64 ./cmd/helm-cli
+          CGO_ENABLED=0 GOARCH=arm64 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o bin/helm-cli-arm64 ./cmd/helm-cli
+          lipo -create -output bin/helm-cli bin/helm-cli-amd64 bin/helm-cli-arm64
+          rm bin/helm-cli-amd64 bin/helm-cli-arm64
+          tar -C bin -czf "bin/helm-${TAG}-macos-universal.tar.gz" helm helm-cli
           ( cd bin && shasum -a 256 Helm-*-macos-universal.app.zip helm-*-macos-universal.tar.gz > SHA256SUMS-macos.txt )
 
       - name: Attach macOS artifacts to the release

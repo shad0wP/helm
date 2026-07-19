@@ -1,7 +1,9 @@
 package service
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -82,6 +84,10 @@ func defaultServices() []Service {
 		// via PID resolution. Port 9119 is a default — override the whole
 		// entry in ~/.config/helm/services.json if yours differs.
 		{ID: "hermes", Name: "Hermes Agent", Kind: KindProcess, Port: 9119, Icon: "robot", Color: "purple"},
+		// OpenClaw is a Node-based agent gateway. Port 18789 is its default
+		// gateway port — override in ~/.config/helm/services.json if yours
+		// differs; discovery (signatures.json) also finds it on any port.
+		{ID: "openclaw", Name: "OpenClaw", Kind: KindProcess, Port: 18789, Icon: "paw", Color: "pink"},
 	}
 }
 
@@ -150,6 +156,50 @@ func checkRunning(s Service) bool {
 	return false
 }
 
+// runControl executes one control command attempt under controlTimeout,
+// capturing stderr so failures carry the tool's real complaint.
+func runControl(argv []string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), controlTimeout)
+	defer cancel()
+	var stderr bytes.Buffer
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		if s := strings.TrimSpace(stderr.String()); s != "" {
+			return fmt.Errorf("%s: %w: %s", strings.Join(argv, " "), err, s)
+		}
+		return fmt.Errorf("%s: %w", strings.Join(argv, " "), err)
+	}
+	return nil
+}
+
+// systemctlAttempts is the ordered argv chain tried for a system-unit action:
+// plain systemctl first — polkit-governed, passwordless once the rule from
+// `helm-cli setup-polkit` is installed — then non-interactive sudo for hosts
+// using the NOPASSWD sudoers setup instead. Both attempts are non-interactive
+// (--no-ask-password / -n) so a host with neither configured fails fast with
+// a clear error instead of hanging on a hidden prompt.
+func systemctlAttempts(action, unit string) [][]string {
+	return [][]string{
+		{"systemctl", "--no-ask-password", action, unit},
+		{"sudo", "-n", "systemctl", action, unit},
+	}
+}
+
+// runSystemctl applies a system-unit action via the attempt chain above.
+func runSystemctl(action, unit string) error {
+	var errs []error
+	for _, argv := range systemctlAttempts(action, unit) {
+		err := runControl(argv)
+		if err == nil {
+			return nil
+		}
+		errs = append(errs, err)
+	}
+	return fmt.Errorf("%s %s failed (for passwordless control run `sudo helm-cli setup-polkit`, or see the README sudoers setup): %w",
+		action, unit, errors.Join(errs...))
+}
+
 // controlService starts or stops a service. Port-kind services are read-only;
 // process-kind services can be stopped (via PID/supervisor attribution) but
 // not started — Helm has no way to know their launch command.
@@ -161,32 +211,23 @@ func controlService(s Service, start bool) error {
 	switch s.Kind {
 	case KindSystemctl:
 		if start {
-			// Requires a NOPASSWD sudoers rule (see README) to run unattended.
-			ctx, cancel := context.WithTimeout(context.Background(), controlTimeout)
-			defer cancel()
-			return exec.CommandContext(ctx, "sudo", "systemctl", action, s.Unit).Run()
+			return runSystemctl(action, s.Unit)
 		}
 		// Stop routes to whoever actually runs it: system unit, user unit, or
 		// — for a manually-launched process detected via the port — the owning
 		// process itself (attributed through its cgroup before signalling).
 		if isRunningSystemctl(s.Unit) {
-			ctx, cancel := context.WithTimeout(context.Background(), controlTimeout)
-			defer cancel()
-			return exec.CommandContext(ctx, "sudo", "systemctl", "stop", s.Unit).Run()
+			return runSystemctl("stop", s.Unit)
 		}
 		if isRunningUserSystemctl(s.Unit) {
-			ctx, cancel := context.WithTimeout(context.Background(), controlTimeout)
-			defer cancel()
-			return exec.CommandContext(ctx, "systemctl", "--user", "stop", s.Unit).Run()
+			return runControl([]string{"systemctl", "--user", "stop", s.Unit})
 		}
 		if s.Port > 0 && isRunningPort(s.Port) {
 			return stopByPort(s.Port, s.Name)
 		}
 		return nil // nothing is running; stopping is a no-op
 	case KindDocker:
-		ctx, cancel := context.WithTimeout(context.Background(), controlTimeout)
-		defer cancel()
-		return exec.CommandContext(ctx, "docker", action, s.Container).Run()
+		return runControl([]string{"docker", action, s.Container})
 	case KindProcess:
 		if start {
 			return fmt.Errorf("cannot start %s — Helm does not know its launch command; start it manually", s.Name)
@@ -426,17 +467,19 @@ func (m *ServiceManager) StartAll() error { return m.bulk(true) }
 func (m *ServiceManager) StopAll() error { return m.bulk(false) }
 
 func (m *ServiceManager) bulk(start bool) error {
-	var firstErr error
+	// Every failure is reported (joined), not just the first — a partial
+	// failure must name exactly which services misbehaved. No rollback.
+	var errs []error
 	for _, s := range m.GetServices() {
 		if s.Kind == KindPort || s.Running == start {
 			continue
 		}
-		if err := controlService(s, start); err != nil && firstErr == nil {
-			firstErr = err
+		if err := controlService(s, start); err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", s.Name, err))
 		}
 	}
 	m.refreshAndNotify()
-	return firstErr
+	return errors.Join(errs...)
 }
 
 // Scan re-runs auto-detection and rebuilds the services list, then notifies.

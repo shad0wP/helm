@@ -18,4 +18,13 @@ else
   echo "Warning: update-mime-database command not found. Custom URL schemes may not be immediately recognized." >&2
 fi
 
+# Install the polkit rule so wheel-group users can toggle Helm's systemd
+# system services without a password. Uses the default service set here (no
+# user config exists at package-install time); after editing
+# ~/.config/helm/services.json, refresh it with: sudo helm-cli setup-polkit
+if [ -x /usr/local/bin/helm-cli ]; then
+  /usr/local/bin/helm-cli setup-polkit || \
+    echo "Note: run 'sudo helm-cli setup-polkit' to enable passwordless service control." >&2
+fi
+
 exit 0

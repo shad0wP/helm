@@ -250,24 +250,16 @@ func stopByPort(port int, name string) error {
 		sup := attributePID(pid)
 		switch sup.Method {
 		case "systemd":
-			ctx, cancel := context.WithTimeout(context.Background(), controlTimeout)
-			err := exec.CommandContext(ctx, "sudo", "systemctl", "stop", sup.Target).Run()
-			cancel()
-			if err != nil {
+			// Same polkit-first / sudo-fallback chain as controlService.
+			if err := runSystemctl("stop", sup.Target); err != nil {
 				return fmt.Errorf("stopping %s via systemd unit %s: %w", name, sup.Target, err)
 			}
 		case "systemd-user":
-			ctx, cancel := context.WithTimeout(context.Background(), controlTimeout)
-			err := exec.CommandContext(ctx, "systemctl", "--user", "stop", sup.Target).Run()
-			cancel()
-			if err != nil {
+			if err := runControl([]string{"systemctl", "--user", "stop", sup.Target}); err != nil {
 				return fmt.Errorf("stopping %s via user unit %s: %w", name, sup.Target, err)
 			}
 		case "docker":
-			ctx, cancel := context.WithTimeout(context.Background(), controlTimeout)
-			err := exec.CommandContext(ctx, "docker", "stop", sup.Target).Run()
-			cancel()
-			if err != nil {
+			if err := runControl([]string{"docker", "stop", sup.Target}); err != nil {
 				return fmt.Errorf("stopping %s via container %s: %w", name, sup.Target, err)
 			}
 		default:

@@ -144,6 +144,9 @@ func TestBundledSignatureRegistry(t *testing.T) {
 		"koboldcpp":             "KoboldCpp",
 		"lm-studio":             "LM Studio",
 		"text-generation-webui": "text-generation-webui",
+		"openclaw":              "OpenClaw",
+		"moltbot":               "OpenClaw", // legacy name still recognized
+		"clawdbot":              "OpenClaw", // original name still recognized
 	}
 	for command, wantName := range wantRecognized {
 		sig, ok := matchSignature(command)

@@ -150,10 +150,44 @@ wails3 package
 > `frontend/dist` and embedded into the binary; the Go↔JS bindings are generated into
 > `frontend/bindings` at build time.
 
-## Linux: passwordless service control (sudoers)
+## The CLI: `helm-cli`
 
-`systemctl`-managed services (Ollama, Docker) require `sudo`. To let Helm start/stop them
-without a password prompt, install a sudoers drop-in **manually**:
+The same product, terminal-shaped. `helm-cli` ships alongside the tray app in every Linux
+package and macOS tarball — same service engine, same defaults, same
+`~/.config/helm/services.json`, same auto-discovery — so the stack can be toggled from
+scripts, ssh sessions, and keybindings:
+
+```
+helm-cli               # toggle: stop everything if anything runs, start everything if not
+helm-cli on | off      # explicit start/stop of every controllable service
+helm-cli status        # per-service state, aggregate state, VRAM in use
+helm-cli free-vram     # evict all loaded Ollama models without stopping the daemon
+helm-cli setup-polkit  # passwordless systemd control via polkit (run with sudo, Linux)
+```
+
+When `nvidia-smi` is present, toggling reports the VRAM delta (e.g. `VRAM Cleared: 4500 MB`);
+without it, toggling works the same and the report is skipped.
+
+## Linux: passwordless service control
+
+For `systemctl`-managed system services (Ollama), Helm tries polkit-governed plain
+`systemctl` first and falls back to non-interactive `sudo`. Pick **one** of these setups:
+
+### Option A: polkit rule (recommended)
+
+```bash
+sudo helm-cli setup-polkit
+```
+
+This installs `/etc/polkit-1/rules.d/99-helm.rules`, a deliberately narrow rule: only the
+`org.freedesktop.systemd1.manage-units` action, only the `wheel` group, only the units in
+your config, only `start`/`stop`/`restart`. The Linux packages install it automatically for
+the default services; re-run the command after editing `services.json`. Removing the package
+removes the rule.
+
+### Option B: sudoers drop-in (manual)
+
+Install a sudoers drop-in **manually**:
 
 ```bash
 sudo nano /etc/sudoers.d/helm
@@ -175,12 +209,17 @@ Save, then run `sudo visudo -c` to validate the file. Helm never writes this fil
 Helm ships with a hardcoded, ordered list of known services. On macOS, Ollama is detected by
 its port (rather than `systemctl`) and is therefore read-only.
 
-| Service       | Linux       | macOS  | Unit / Container | Port  |
-|---------------|-------------|--------|------------------|-------|
-| Ollama        | systemctl   | port   | `ollama`         | 11434 |
-| Open WebUI    | docker      | docker | `open-webui`     | 3000  |
-| SearXNG       | docker      | docker | `searxng`        | 8080  |
-| Hermes Agent  | port        | port   | —                | 9119  |
+| Service       | Linux       | macOS   | Unit / Container | Port  |
+|---------------|-------------|---------|------------------|-------|
+| Ollama        | systemctl   | port    | `ollama`         | 11434 |
+| Open WebUI    | docker      | docker  | `open-webui`     | 3000  |
+| SearXNG       | docker      | docker  | `searxng`        | 8080  |
+| Hermes Agent  | process     | process | —                | 9119  |
+| OpenClaw      | process     | process | —                | 18789 |
+
+Hermes Agent and OpenClaw default to their conventional ports — override the entries in
+`~/.config/helm/services.json` if yours differ; discovery also finds them on any port they
+actually listen on.
 
 ## Auto-detected ports
 

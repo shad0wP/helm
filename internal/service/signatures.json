@@ -11,6 +11,7 @@
     { "pattern": "\\btext-generation\\S*\\b", "name": "text-generation-webui", "icon": "cpu", "color": "amber", "port": 7860 },
     { "pattern": "\\bjan(?:-server)?\\b", "name": "Jan", "icon": "cpu", "color": "gray", "port": 1337 },
     { "pattern": "\\blocalai\\b", "name": "LocalAI", "icon": "cpu", "color": "gray", "port": 8080 },
+    { "pattern": "\\b(?:openclaw|moltbot|clawdbot)\\b", "name": "OpenClaw", "icon": "paw", "color": "pink", "port": 18789 },
     { "pattern": "python[0-9.]*\\s+.*\\bserve\\b", "name": "Python server", "icon": "cpu", "color": "gray", "port": 0 }
   ]
 }

@@ -213,10 +213,10 @@ func TestStopAllSkipsReadOnlyServices(t *testing.T) {
 
 func TestDefaultServices(t *testing.T) {
 	svcs := defaultServices()
-	if len(svcs) != 4 {
-		t.Fatalf("defaultServices() returned %d services, want 4", len(svcs))
+	if len(svcs) != 5 {
+		t.Fatalf("defaultServices() returned %d services, want 5", len(svcs))
 	}
-	wantIDs := []string{"ollama", "open-webui", "searxng", "hermes"}
+	wantIDs := []string{"ollama", "open-webui", "searxng", "hermes", "openclaw"}
 	for i, id := range wantIDs {
 		if svcs[i].ID != id {
 			t.Errorf("service[%d].ID = %q, want %q (order is significant)", i, svcs[i].ID, id)
@@ -258,7 +258,7 @@ func TestScanPopulatesKnownServicesAndNotifies(t *testing.T) {
 	for _, s := range m.GetServices() {
 		byID[s.ID] = s
 	}
-	for _, id := range []string{"ollama", "open-webui", "searxng", "hermes"} {
+	for _, id := range []string{"ollama", "open-webui", "searxng", "hermes", "openclaw"} {
 		s, ok := byID[id]
 		if !ok {
 			t.Errorf("Scan result is missing known service %q", id)
@@ -307,7 +307,7 @@ func TestNewServiceManager(t *testing.T) {
 	for _, s := range svcs {
 		ids[s.ID] = true
 	}
-	for _, id := range []string{"ollama", "open-webui", "searxng", "hermes"} {
+	for _, id := range []string{"ollama", "open-webui", "searxng", "hermes", "openclaw"} {
 		if !ids[id] {
 			t.Errorf("NewServiceManager() is missing known service %q", id)
 		}
@@ -383,6 +383,46 @@ func TestStopPollingIsSafeAndIdempotent(t *testing.T) {
 	// Starting after a stop must not hang or leak: the goroutine sees a closed
 	// stop channel and returns immediately.
 	m.StartPolling(10 * time.Millisecond)
+}
+
+// TestSystemctlAttemptsOrder pins the privilege chain for system units:
+// plain polkit-governed systemctl first, non-interactive sudo second — and
+// both must be non-interactive so a misconfigured host fails fast instead of
+// hanging on a hidden password prompt.
+func TestSystemctlAttemptsOrder(t *testing.T) {
+	got := systemctlAttempts("stop", "ollama")
+	want := [][]string{
+		{"systemctl", "--no-ask-password", "stop", "ollama"},
+		{"sudo", "-n", "systemctl", "stop", "ollama"},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("attempts = %v, want %v", got, want)
+	}
+	for i := range want {
+		if strings.Join(got[i], " ") != strings.Join(want[i], " ") {
+			t.Errorf("attempt[%d] = %v, want %v", i, got[i], want[i])
+		}
+	}
+}
+
+// TestBulkAggregatesAllFailures: a partial failure must name every service
+// that misbehaved, not just the first (errors.Join). Two stoppable process
+// services with no lsof/ss on PATH deterministically fail to stop.
+func TestBulkAggregatesAllFailures(t *testing.T) {
+	t.Setenv("PATH", t.TempDir()) // no lsof, no ss -> stopByPort fails for both
+	m := &ServiceManager{services: []Service{
+		{ID: "a", Name: "Alpha", Kind: KindProcess, Port: 1, Running: true},
+		{ID: "b", Name: "Beta", Kind: KindProcess, Port: 2, Running: true},
+	}}
+	err := m.StopAll()
+	if err == nil {
+		t.Fatal("StopAll() = nil, want an aggregated error")
+	}
+	for _, name := range []string{"Alpha", "Beta"} {
+		if !strings.Contains(err.Error(), name) {
+			t.Errorf("aggregated error %q does not mention %s", err.Error(), name)
+		}
+	}
 }
 
 // TestPollOnceSurvivesPanickingCallback: the recover() in pollOnce exists so a

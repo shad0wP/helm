@@ -38,10 +38,15 @@ jobs:
       - name: Install govulncheck
         run: go install golang.org/x/vuln/cmd/govulncheck@latest
 
-      # Scope to the app binary's package (avoids the unused iOS/Android scaffold
-      # stubs under build/). Exits non-zero if a reachable vulnerability exists.
+      # Scope to the shipped binaries' packages (avoids the unused iOS/Android
+      # scaffold stubs under build/). Exits non-zero if a reachable
+      # vulnerability exists.
       - name: Run govulncheck
-        run: govulncheck .
+        run: govulncheck . ./cmd/helm-cli
+
+      # Full test suite with the race detector — the same gate run locally.
+      - name: Run tests
+        run: go test -race ./internal/... ./cmd/... .
 
   npm-audit:
     name: npm dependencies (GitHub Advisory DB)

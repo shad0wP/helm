@@ -57,8 +57,10 @@ jobs:
         run: |
           set -euxo pipefail
           test -f bin/helm
+          # helm-cli: the terminal face of the same product (static, no GUI deps).
+          CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o bin/helm-cli ./cmd/helm-cli
           # Raw binary tarball (works on any distro with gtk4 + webkitgtk-6.0 installed)
-          tar -C bin -czf "bin/helm-${VERSION}-linux-amd64.tar.gz" helm
+          tar -C bin -czf "bin/helm-${VERSION}-linux-amd64.tar.gz" helm helm-cli
           # Native distro packages via the bundled nfpm. Arch is ideal for CachyOS.
           wails3 tool package -name helm -format archlinux -config ./build/linux/nfpm/nfpm.yaml -out ./bin
           wails3 tool package -name helm -format deb       -config ./build/linux/nfpm/nfpm.yaml -out ./bin
