@@ -122,7 +122,7 @@ func parseUserConfig(raw []byte) ([]Service, error) {
 				return nil, fmt.Errorf("services[%d] (%s): kind docker requires container", i, us.ID)
 			}
 		case KindPort, KindProcess:
-			if us.Port <= 0 || us.Port > 65535 {
+			if us.Port <= 0 {
 				return nil, fmt.Errorf("services[%d] (%s): kind %s requires a valid port", i, us.ID, kind)
 			}
 		}
@@ -171,7 +171,7 @@ func loadUserServices() ([]Service, error) {
 func mergeServices(defaults, user []Service) []Service {
 	out := make([]Service, len(defaults))
 	copy(out, defaults)
-	index := map[string]int{}
+	index := make(map[string]int, len(defaults)+len(user))
 	for i, s := range out {
 		index[s.ID] = i
 	}

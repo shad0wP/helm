@@ -6,8 +6,6 @@ import { ServiceKind, type Service } from "../bindings/helm/internal/service";
 import { type Info as UpdateInfo } from "../bindings/helm/internal/update";
 import { Events } from "@wailsio/runtime";
 
-let currentServices: Service[] = [];
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -94,8 +92,7 @@ async function init(): Promise<void> {
   wireControls();
   wireUpdateControls();
   void showVersion();
-  currentServices = (await App.GetServices()) ?? [];
-  render(currentServices);
+  render((await App.GetServices()) ?? []);
 
   // Backend pushes a fresh snapshot after every poll cycle that changes state.
   Events.On("services-updated", (ev): void => {
@@ -104,7 +101,6 @@ async function init(): Promise<void> {
       console.error("Helm: rejected malformed services-updated event", ev.data);
       return;
     }
-    currentServices = snapshot;
     render(snapshot);
   });
 
@@ -144,14 +140,16 @@ function showUpdateBanner(info: UpdateInfo): void {
 
   const dl = byId<HTMLButtonElement>("update-download");
   dl.hidden = !info.assetURL;
-  dl.onclick = () => {
+  dl.onclick = async () => {
     dl.disabled = true;
-    App.DownloadUpdate(info.assetURL)
-      .then((path: string) => showToast(`Downloaded & verified → ${path}`, "info"))
-      .catch((e: unknown) => showToast(`Download: ${errText(e)}`, "error"))
-      .finally(() => {
-        dl.disabled = false;
-      });
+    try {
+      const path = await App.DownloadUpdate(info.assetURL);
+      showToast(`Downloaded & verified → ${path}`, "info");
+    } catch (err: unknown) {
+      showToast(`Download: ${errText(err)}`, "error");
+    } finally {
+      dl.disabled = false;
+    }
   };
 
   byId<HTMLButtonElement>("update-dismiss").onclick = () => {
@@ -179,37 +177,42 @@ function wireUpdateControls(): void {
   });
 }
 
-function render(services: Service[]): void {
+function render(services: readonly Service[]): void {
   updateGlobalStatus(services);
   const list = byId("services-list");
-  list.replaceChildren();
-
-  const known: Service[] = services.filter((s: Service) => !s.Auto);
-  const auto: Service[] = services.filter((s: Service) => s.Auto);
+  const fragment = document.createDocumentFragment();
+  const known: Service[] = [];
+  const auto: Service[] = [];
+  for (const service of services) {
+    (service.Auto ? auto : known).push(service);
+  }
 
   if (known.length) {
-    appendSection(list, "Services", known);
+    appendSection(fragment, "Services", known);
   }
   if (auto.length) {
     const div = document.createElement("div");
     div.className = "divider";
-    list.appendChild(div);
-    appendSection(list, "Auto-detected", auto);
+    fragment.appendChild(div);
+    appendSection(fragment, "Auto-detected", auto);
   }
   if (!services.length) {
     const empty = document.createElement("div");
     empty.className = "empty-state";
     empty.textContent = "No services found";
-    list.appendChild(empty);
+    fragment.appendChild(empty);
   }
+  list.replaceChildren(fragment);
 }
 
-function appendSection(parent: HTMLElement, label: string, services: Service[]): void {
+function appendSection(parent: ParentNode, label: string, services: readonly Service[]): void {
   const lbl = document.createElement("div");
   lbl.className = "section-label";
   lbl.textContent = label;
   parent.appendChild(lbl);
-  services.forEach((svc: Service) => parent.appendChild(buildRow(svc)));
+  for (const service of services) {
+    parent.appendChild(buildRow(service));
+  }
 }
 
 function buildRow(svc: Service): HTMLDivElement {
@@ -238,17 +241,14 @@ function buildRow(svc: Service): HTMLDivElement {
 
   // Raw processes are stop-only: Helm can signal a running process but cannot
   // reconstruct the command needed to launch a stopped one.
-  const readonly: boolean =
-    svc.Kind === ServiceKind.KindPort ||
-    (svc.Kind === ServiceKind.KindProcess && !svc.Running);
+  const readonly = svc.Kind === ServiceKind.KindPort || (svc.Kind === ServiceKind.KindProcess && !svc.Running);
   const toggle = document.createElement("label");
   toggle.className = "toggle" + (readonly ? " readonly" : "");
-  toggle.title =
-    svc.Kind === ServiceKind.KindProcess && !svc.Running
-      ? "Cannot start — launch this service externally"
-      : readonly
-      ? "Read-only — declare it in ~/.config/helm/services.json to control it"
-      : "";
+  if (svc.Kind === ServiceKind.KindProcess && !svc.Running) {
+    toggle.title = "Cannot start — launch this service externally";
+  } else if (readonly) {
+    toggle.title = "Read-only — declare it in ~/.config/helm/services.json to control it";
+  }
 
   const input = document.createElement("input");
   input.type = "checkbox";
@@ -269,45 +269,56 @@ function buildRow(svc: Service): HTMLDivElement {
 }
 
 function portLabel(svc: Service): string {
-  const proto: string =
-    svc.Kind === ServiceKind.KindDocker
-      ? "docker"
-      : svc.Kind === ServiceKind.KindSystemctl
-      ? "systemd"
-      : svc.Kind === ServiceKind.KindProcess
-      ? "process"
-      : "port";
+  let proto: string;
+  switch (svc.Kind) {
+    case ServiceKind.KindDocker:
+      proto = "docker";
+      break;
+    case ServiceKind.KindSystemctl:
+      proto = "systemd";
+      break;
+    case ServiceKind.KindProcess:
+      proto = "process";
+      break;
+    default:
+      proto = "port";
+  }
   return svc.Port ? `${proto} · localhost:${svc.Port}` : proto;
 }
 
-function updateGlobalStatus(services: Service[]): void {
-  const running: number = services.filter((s: Service) => s.Running).length;
-  const total: number = services.length;
+function updateGlobalStatus(services: readonly Service[]): void {
+  let running = 0;
+  for (const service of services) {
+    if (service.Running) {
+      running++;
+    }
+  }
+  const total = services.length;
   const dot = byId("global-dot");
   const txt = byId("global-text");
 
-  dot.className =
-    "status-dot " +
-    (running === total && total > 0
-      ? "state-all"
-      : running > 0
-      ? "state-some"
-      : "state-none");
+  let state = "state-none";
+  if (total > 0 && running === total) {
+    state = "state-all";
+  } else if (running > 0) {
+    state = "state-some";
+  }
+  dot.className = `status-dot ${state}`;
 
-  txt.textContent =
-    total === 0
-      ? "No services found"
-      : running === 0
-      ? "All stopped"
-      : `${running} of ${total} running`;
+  if (total === 0) {
+    txt.textContent = "No services found";
+  } else if (running === 0) {
+    txt.textContent = "All stopped";
+  } else {
+    txt.textContent = `${running} of ${total} running`;
+  }
 }
 
 async function toggleService(id: string, name: string, checkbox: HTMLInputElement): Promise<void> {
   const wanted = checkbox.checked;
   checkbox.disabled = true;
   try {
-    currentServices = (await App.Toggle(id)) ?? [];
-    render(currentServices);
+    render((await App.Toggle(id)) ?? []);
   } catch (err: unknown) {
     // Revert the optimistic toggle AND surface the real failure — a silently
     // reverted checkbox otherwise looks like "nothing happened".
@@ -350,13 +361,13 @@ function wireControls(): void {
     scanBtn.disabled = true;
     setButtonContent(scanBtn, "ti-loader-2 ti-spin", "Scanning…");
     try {
-      currentServices = (await App.Scan()) ?? [];
-      render(currentServices);
+      render((await App.Scan()) ?? []);
     } catch (err: unknown) {
       console.error("Scan failed:", err);
+    } finally {
+      scanBtn.disabled = false;
+      setButtonContent(scanBtn, "ti-radar", "Scan for services");
     }
-    scanBtn.disabled = false;
-    setButtonContent(scanBtn, "ti-radar", "Scan for services");
   });
 }
 
@@ -367,8 +378,7 @@ async function runBulkAction(
 ): Promise<void> {
   button.disabled = true;
   try {
-    currentServices = (await action()) ?? [];
-    render(currentServices);
+    render((await action()) ?? []);
   } catch (err: unknown) {
     showToast(`${label}: ${errText(err)}`, "error");
   } finally {

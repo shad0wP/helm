@@ -5,6 +5,32 @@ automatically by [release-please](https://github.com/googleapis/release-please)
 from [Conventional Commits](CONTRIBUTING.md) — do not edit released sections by
 hand; new entries are prepended on release.
 
+## [0.3.2] - 2026-08-13
+
+### Refactored
+
+- Consolidated service configuration and concurrent state probing while preserving every public
+  API, control path, timeout, and defensive boundary.
+- Simplified updater and application goroutine lifecycles around cancellable contexts and Go's
+  native `WaitGroup.Go` helper.
+- Flattened frontend asynchronous control flow and removed redundant client-side service state.
+
+### Fixed
+
+- Made platform update-asset preference independent of GitHub's asset ordering and added
+  regression coverage for architecture mismatches.
+- Centralized temporary-file cleanup so failed configuration and update writes cannot leave
+  partial artifacts behind.
+
+### Optimized
+
+- Reduced service polling allocations through reusable loopback targets, preallocated maps and
+  slices, and allocation-free line iteration for process, checksum, and GPU parsing.
+- Reduced each frontend refresh to one service-partition pass, one running-state count, and one
+  atomic DOM replacement through a document fragment.
+- Reduced update asset selection from repeated closure-based scans to a single platform-specific
+  pass.
+
 ## [0.3.1] - 2026-08-13
 
 ### Added

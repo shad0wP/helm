@@ -45,7 +45,7 @@ var ssListenerRe = regexp.MustCompile(`users:\(\("([^"]+)",pid=(\d+)`)
 // Pure function; unit-tested against captured output.
 func parseSSListeners(out string) []listener {
 	var res []listener
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.Lines(out) {
 		fields := strings.Fields(line)
 		if len(fields) < 4 {
 			continue
@@ -82,7 +82,7 @@ func parseSSListeners(out string) []listener {
 // Pure function; unit-tested against captured output.
 func parseLsofListeners(out string) []listener {
 	var res []listener
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.Lines(out) {
 		fields := strings.Fields(line)
 		n := len(fields)
 		if n < 9 || fields[0] == "COMMAND" {
@@ -323,17 +323,21 @@ func pidOwnsPort(pid, port int) bool {
 // given set. Matched services use the signature's display name/icon/color;
 // the port is always the one the listener was actually found on.
 func discoverProcesses(claimed map[int]bool) []Service {
-	var out []Service
-	seen := map[int]bool{}
-	for _, l := range listListeners() {
-		if claimed[l.Port] || seen[l.Port] {
+	listeners := listListeners()
+	out := make([]Service, 0, len(listeners))
+	seen := make(map[int]struct{}, len(listeners))
+	for _, l := range listeners {
+		if claimed[l.Port] {
+			continue
+		}
+		if _, duplicate := seen[l.Port]; duplicate {
 			continue
 		}
 		sig, ok := matchSignature(l.Command)
 		if !ok {
 			continue
 		}
-		seen[l.Port] = true
+		seen[l.Port] = struct{}{}
 		s := Service{
 			ID:      fmt.Sprintf("proc_%d", l.Port),
 			Name:    fmt.Sprintf("%s (:%d)", sig.Name, l.Port),

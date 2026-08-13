@@ -26,6 +26,11 @@ type ollamaPSResponse struct {
 	} `json:"models"`
 }
 
+type ollamaUnloadRequest struct {
+	Model     string `json:"model"`
+	KeepAlive int    `json:"keep_alive"`
+}
+
 // ollamaLoadedModels asks the Ollama API which models are resident.
 func ollamaLoadedModels(base string) ([]string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
@@ -63,10 +68,7 @@ func ollamaLoadedModels(base string) ([]string, error) {
 // ollamaUnloadModel evicts one model by requesting a generation with
 // keep_alive 0 (the documented eviction idiom).
 func ollamaUnloadModel(base, model string) error {
-	body, err := json.Marshal(map[string]any{
-		"model":      model,
-		"keep_alive": 0,
-	})
+	body, err := json.Marshal(ollamaUnloadRequest{Model: model})
 	if err != nil {
 		return err
 	}

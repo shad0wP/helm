@@ -152,39 +152,37 @@ func parseRelease(data []byte) (ghRelease, error) {
 // selectAsset picks the best download asset for the given platform. Pure;
 // unit-tested. Returns "" when nothing matches.
 func selectAsset(assets []ghAsset, goos, goarch string) string {
-	match := func(pred func(name string) bool) string {
-		for _, a := range assets {
-			if pred(strings.ToLower(a.Name)) {
-				return a.URL
-			}
-		}
-		return ""
-	}
 	switch goos {
 	case "darwin":
-		// Prefer the app bundle zip, then any macOS/darwin asset.
-		if u := match(func(n string) bool {
-			return (strings.Contains(n, "macos") || strings.Contains(n, "darwin")) && strings.HasSuffix(n, ".app.zip")
-		}); u != "" {
-			return u
+		var fallback string
+		for _, asset := range assets {
+			name := strings.ToLower(asset.Name)
+			if !strings.Contains(name, "macos") && !strings.Contains(name, "darwin") {
+				continue
+			}
+			if strings.HasSuffix(name, ".app.zip") {
+				return asset.URL
+			}
+			if fallback == "" {
+				fallback = asset.URL
+			}
 		}
-		return match(func(n string) bool {
-			return strings.Contains(n, "macos") || strings.Contains(n, "darwin")
-		})
+		return fallback
 	case "linux":
-		arches := []string{goarch}
-		if goarch == "amd64" {
-			arches = append(arches, "x86_64")
+		var fallback string
+		for _, asset := range assets {
+			name := strings.ToLower(asset.Name)
+			if !strings.Contains(name, "linux") || !matchesArch(name, goarch) {
+				continue
+			}
+			if strings.HasSuffix(name, ".tar.gz") {
+				return asset.URL
+			}
+			if fallback == "" {
+				fallback = asset.URL
+			}
 		}
-		// Prefer the channel-agnostic raw tarball.
-		if u := match(func(n string) bool {
-			return strings.Contains(n, "linux") && hasAnyArch(n, arches) && strings.HasSuffix(n, ".tar.gz")
-		}); u != "" {
-			return u
-		}
-		return match(func(n string) bool {
-			return strings.Contains(n, "linux") && hasAnyArch(n, arches)
-		})
+		return fallback
 	}
 	return ""
 }
@@ -204,13 +202,8 @@ func selectChecksums(assets []ghAsset, goos string) string {
 	return ""
 }
 
-func hasAnyArch(name string, arches []string) bool {
-	for _, a := range arches {
-		if strings.Contains(name, a) {
-			return true
-		}
-	}
-	return false
+func matchesArch(name, goarch string) bool {
+	return strings.Contains(name, goarch) || goarch == "amd64" && strings.Contains(name, "x86_64")
 }
 
 // Check queries the release source and compares against currentVersion.
@@ -266,7 +259,7 @@ func Check(ctx context.Context, url, currentVersion string) (Info, error) {
 // file ("<hex>␠␠<name>"). Pure; unit-tested.
 func parseChecksums(data string) map[string]string {
 	out := map[string]string{}
-	for _, line := range strings.Split(data, "\n") {
+	for line := range strings.Lines(data) {
 		fields := strings.Fields(line)
 		if len(fields) != 2 || !isHex(fields[0]) {
 			continue
@@ -332,35 +325,30 @@ func Download(ctx context.Context, assetURL, checksumsURL, destDir string) (stri
 		return "", err
 	}
 	tmp := f.Name()
+	defer func() {
+		_ = f.Close()
+		_ = os.Remove(tmp)
+	}()
 	h := sha256.New()
 	written, err := io.CopyN(io.MultiWriter(f, h), resp.Body, maxUpdateBytes+1)
 	if err != nil && !errors.Is(err, io.EOF) {
-		f.Close()
-		os.Remove(tmp)
 		return "", err
 	}
 	if written > maxUpdateBytes {
-		f.Close()
-		os.Remove(tmp)
 		return "", fmt.Errorf("update %s exceeds the %d MiB size limit", name, maxUpdateBytes>>20)
 	}
 	if err := f.Sync(); err != nil {
-		f.Close()
-		os.Remove(tmp)
 		return "", err
 	}
 	if err := f.Close(); err != nil {
-		os.Remove(tmp)
 		return "", err
 	}
 
 	got := hex.EncodeToString(h.Sum(nil))
 	if got != want {
-		os.Remove(tmp)
 		return "", fmt.Errorf("checksum mismatch for %s: got %s, want %s", name, got, want)
 	}
 	dest, err := linkWithoutOverwrite(tmp, destDir, name)
-	os.Remove(tmp)
 	if err != nil {
 		return "", err
 	}

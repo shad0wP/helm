@@ -56,9 +56,7 @@ func main() {
 	// Starts only a timer; the first network request is delayed by 30 seconds,
 	// while starting before Run makes shutdown joining deterministic.
 	updater.Start(app)
-	startupWG.Add(1)
-	go func() {
-		defer startupWG.Done()
+	startupWG.Go(func() {
 		select {
 		case <-lifecycleCtx.Done():
 			return
@@ -66,19 +64,16 @@ func main() {
 		}
 
 		var jobs sync.WaitGroup
-		jobs.Add(2)
-		go func() {
-			defer jobs.Done()
+		jobs.Go(func() {
 			if err := svc.Scan(); err != nil {
 				log.Printf("helm: initial service scan failed: %v", err)
 			}
-		}()
-		go func() {
-			defer jobs.Done()
+		})
+		jobs.Go(func() {
 			runFirstRunWizard(lifecycleCtx, app, svc)
-		}()
+		})
 		jobs.Wait()
-	}()
+	})
 
 	app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
 		startedOnce.Do(func() { close(started) })

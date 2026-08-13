@@ -20,11 +20,11 @@ func TestUpdaterDownloadFailsClosedBeforeAnyCheck(t *testing.T) {
 }
 
 // TestUpdaterStopIsIdempotent mirrors the service poller's lifecycle guarantee:
-// Stop before Start, and repeated Stop, must never panic (double close).
+// Stop before Start, and repeated Stop, must remain safe and non-blocking.
 func TestUpdaterStopIsIdempotent(t *testing.T) {
 	u := newUpdater("dev")
 	u.Stop()
-	u.Start(nil) // a late start observes the closed stop channel and exits
+	u.Start(nil) // a late start observes the canceled context and exits
 	u.Stop()
 }
 

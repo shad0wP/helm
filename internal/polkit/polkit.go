@@ -31,15 +31,15 @@ func unitName(u string) string {
 // SystemUnits extracts the deduplicated systemd system-unit names the rule
 // must allow, in service order, from a merged service snapshot.
 func SystemUnits(services []service.Service) []string {
-	var units []string
-	seen := map[string]bool{}
+	units := make([]string, 0, len(services))
+	seen := make(map[string]struct{}, len(services))
 	for _, s := range services {
 		if s.Kind != service.KindSystemctl || s.Unit == "" {
 			continue
 		}
 		u := unitName(s.Unit)
-		if !seen[u] {
-			seen[u] = true
+		if _, exists := seen[u]; !exists {
+			seen[u] = struct{}{}
 			units = append(units, u)
 		}
 	}

@@ -212,13 +212,12 @@ func buildLinuxMenu(app *application.App, svc *service.ServiceManager, window ap
 			item.SetEnabled(false)
 			continue
 		}
-		id := entry.ID // capture per-iteration
 		item.OnClick(func(_ *application.Context) {
 			// Toggle shells out (up to controlTimeout); never block the UI
 			// thread. The poll/refresh path rebuilds the menu afterwards.
 			go func() {
-				if err := svc.Toggle(id); err != nil {
-					log.Printf("helm: toggle %s failed: %v", id, err)
+				if err := svc.Toggle(entry.ID); err != nil {
+					log.Printf("helm: toggle %s failed: %v", entry.ID, err)
 				}
 			}()
 		})

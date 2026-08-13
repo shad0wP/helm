@@ -55,7 +55,7 @@ func (g GPU) UsedMB() (used int, ok bool) {
 		return 0, false
 	}
 	total, lines := 0, 0
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.Lines(out) {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue

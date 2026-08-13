@@ -22,8 +22,8 @@ const (
 )
 
 // updater runs periodic update checks and exposes on-demand check/download to
-// the App. It follows the service poller's lifecycle pattern (stop channel +
-// sync.Once + panic recovery).
+// the App. It follows the service poller's lifecycle pattern (cancellable
+// context + sync.Once + panic recovery).
 type updater struct {
 	version string
 	baseURL string
@@ -34,9 +34,7 @@ type updater struct {
 
 	ctx       context.Context
 	cancel    context.CancelFunc
-	stop      chan struct{}
 	startOnce sync.Once
-	stopOnce  sync.Once
 	wg        sync.WaitGroup
 }
 
@@ -47,7 +45,6 @@ func newUpdater(version string) *updater {
 		baseURL: update.DefaultReleasesURL,
 		ctx:     ctx,
 		cancel:  cancel,
-		stop:    make(chan struct{}),
 	}
 }
 
@@ -55,30 +52,25 @@ func newUpdater(version string) *updater {
 // emission and tray tooltip updates.
 func (u *updater) Start(app *application.App) {
 	u.startOnce.Do(func() {
-		u.wg.Add(1)
-		go func() {
-			defer u.wg.Done()
+		u.wg.Go(func() {
 			timer := time.NewTimer(updateInitialDelay)
 			defer timer.Stop()
 			for {
 				select {
-				case <-u.stop:
+				case <-u.ctx.Done():
 					return
 				case <-timer.C:
 					u.checkOnce(app)
 					timer.Reset(updateCheckInterval)
 				}
 			}
-		}()
+		})
 	})
 }
 
 // Stop terminates the background loop (idempotent).
 func (u *updater) Stop() {
-	u.stopOnce.Do(func() {
-		u.cancel()
-		close(u.stop)
-	})
+	u.cancel()
 	u.wg.Wait()
 }
 

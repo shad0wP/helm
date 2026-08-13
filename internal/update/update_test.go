@@ -84,6 +84,24 @@ func TestSelectAsset(t *testing.T) {
 	if got := selectAsset(assets, "windows", "amd64"); got != "" {
 		t.Errorf("windows asset = %q, want empty", got)
 	}
+
+	// Preference must not depend on release-asset ordering: GitHub may return
+	// a package before the preferred standalone archive.
+	fallbackFirst := []ghAsset{
+		{Name: "helm-linux-amd64.deb", URL: "linux-fallback"},
+		{Name: "helm-macos-universal.tar.gz", URL: "mac-fallback"},
+		{Name: "helm-linux-amd64.tar.gz", URL: "linux-preferred"},
+		{Name: "Helm-macos-universal.app.zip", URL: "mac-preferred"},
+	}
+	if got := selectAsset(fallbackFirst, "linux", "amd64"); got != "linux-preferred" {
+		t.Errorf("linux order-independent preference = %q, want linux-preferred", got)
+	}
+	if got := selectAsset(fallbackFirst, "darwin", "arm64"); got != "mac-preferred" {
+		t.Errorf("darwin order-independent preference = %q, want mac-preferred", got)
+	}
+	if got := selectAsset(only, "linux", "arm64"); got != "" {
+		t.Errorf("arm64 incorrectly matched x86_64 asset: %q", got)
+	}
 }
 
 func TestParseChecksums(t *testing.T) {

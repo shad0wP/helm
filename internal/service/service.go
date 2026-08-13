@@ -9,6 +9,7 @@ import (
 	"net"
 	"os/exec"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -64,6 +65,8 @@ var AutoPorts = []struct {
 	{5000, "Flask / ML App", "api", "gray"},
 	{11435, "Ollama (alt)", "cpu", "green"},
 }
+
+var loopbackHosts = [...]string{"127.0.0.1", "::1"}
 
 // isMacOS reports whether we are running on macOS.
 func isMacOS() bool { return runtime.GOOS == "darwin" }
@@ -126,8 +129,9 @@ func isRunningDocker(container string) bool {
 // loopback stacks: 127.0.0.1 and [::1]. Either success counts — servers bound
 // only to IPv6 loopback were previously invisible.
 func isRunningPort(port int) bool {
-	for _, host := range []string{"127.0.0.1", "[::1]"} {
-		conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", host, port), 300*time.Millisecond)
+	portString := strconv.Itoa(port)
+	for _, host := range loopbackHosts {
+		conn, err := net.DialTimeout("tcp", net.JoinHostPort(host, portString), 300*time.Millisecond)
 		if err == nil {
 			_ = conn.Close()
 			return true
@@ -291,6 +295,34 @@ type ServiceManager struct {
 	pollWG    sync.WaitGroup
 }
 
+// configuredServices returns built-ins overlaid by the optional user config.
+// Configuration failures are non-fatal so the tray and CLI remain usable.
+func configuredServices() []Service {
+	services := defaultServices()
+	user, err := loadUserServices()
+	if err != nil {
+		log.Printf("helm: ignoring user config: %v", err)
+		return services
+	}
+	if len(user) > 0 {
+		return mergeServices(services, user)
+	}
+	return services
+}
+
+// probeServices resolves independent service states concurrently. Each
+// goroutine owns one slice element, so no additional synchronization is needed.
+func probeServices(services []Service) {
+	var wg sync.WaitGroup
+	for i := range services {
+		wg.Go(func() {
+			services[i].Running = checkRunning(services[i])
+			services[i].Meta = metaFor(services[i])
+		})
+	}
+	wg.Wait()
+}
+
 // NewServiceManager builds the manager with an initial, fully-probed snapshot
 // (known services plus any auto-detected ports).
 func NewServiceManager() *ServiceManager {
@@ -305,12 +337,7 @@ func NewServiceManager() *ServiceManager {
 // CLI keeps using NewServiceManager because each invocation needs a complete
 // synchronous snapshot before selecting an action.
 func NewDeferredServiceManager() *ServiceManager {
-	known := defaultServices()
-	if user, err := loadUserServices(); err != nil {
-		log.Printf("helm: ignoring user config: %v", err)
-	} else if len(user) > 0 {
-		known = mergeServices(known, user)
-	}
+	known := configuredServices()
 	for i := range known {
 		known[i].Meta = metaFor(known[i])
 	}
@@ -328,29 +355,15 @@ func (m *ServiceManager) SetOnChange(fn func([]Service)) {
 // with the user's ~/.config/helm/services.json, plus auto-detection (the fixed
 // AutoPorts probe list and live process discovery via listener enumeration).
 func (m *ServiceManager) rebuild() {
-	known := defaultServices()
-	if user, err := loadUserServices(); err != nil {
-		log.Printf("helm: ignoring user config: %v", err)
-	} else if len(user) > 0 {
-		known = mergeServices(known, user)
-	}
+	known := configuredServices()
 
 	rebuilt := make([]Service, 0, len(known)+len(AutoPorts))
 	// claimed suppresses auto-detection only for ports whose known service is
 	// actually running — a known-but-stopped service must not mask a live
 	// listener on its port (e.g. ollama unit down, manual `ollama serve` up).
 	claimed := map[int]bool{}
-	var probeWG sync.WaitGroup
+	probeServices(known)
 	for i := range known {
-		probeWG.Add(1)
-		go func(index int) {
-			defer probeWG.Done()
-			known[index].Running = checkRunning(known[index])
-		}(i)
-	}
-	probeWG.Wait()
-	for i := range known {
-		known[i].Meta = metaFor(known[i])
 		if known[i].Port > 0 && known[i].Running {
 			claimed[known[i].Port] = true
 		}
@@ -360,15 +373,14 @@ func (m *ServiceManager) rebuild() {
 	// Fixed probe list. Discovered listeners are KindProcess — stoppable —
 	// because an open port means a live local process.
 	autoRunning := make([]bool, len(AutoPorts))
+	var probeWG sync.WaitGroup
 	for i, ap := range AutoPorts {
 		if claimed[ap.Port] {
 			continue
 		}
-		probeWG.Add(1)
-		go func(index, port int) {
-			defer probeWG.Done()
-			autoRunning[index] = isRunningPort(port)
-		}(i, ap.Port)
+		probeWG.Go(func() {
+			autoRunning[i] = isRunningPort(ap.Port)
+		})
 	}
 	probeWG.Wait()
 	for i, ap := range AutoPorts {
@@ -408,11 +420,9 @@ func (m *ServiceManager) refresh() bool {
 	states := make([]bool, len(snapshot))
 	var wg sync.WaitGroup
 	for i := range snapshot {
-		wg.Add(1)
-		go func(index int) {
-			defer wg.Done()
-			states[index] = checkRunning(snapshot[index])
-		}(i)
+		wg.Go(func() {
+			states[i] = checkRunning(snapshot[i])
+		})
 	}
 	wg.Wait()
 	running := make(map[string]bool, len(snapshot))
@@ -441,10 +451,14 @@ func (m *ServiceManager) refresh() bool {
 func (m *ServiceManager) notify() {
 	m.mu.RLock()
 	fn := m.onChange
-	m.mu.RUnlock()
-	if fn != nil {
-		fn(m.GetServices())
+	if fn == nil {
+		m.mu.RUnlock()
+		return
 	}
+	snapshot := make([]Service, len(m.services))
+	copy(snapshot, m.services)
+	m.mu.RUnlock()
+	fn(snapshot)
 }
 
 // refreshAndNotify re-checks state and fires onChange only when something moved.
@@ -475,9 +489,7 @@ func (m *ServiceManager) StartPolling(interval time.Duration) {
 	}
 	stop := m.ensureStop()
 	m.startOnce.Do(func() {
-		m.pollWG.Add(1)
-		go func() {
-			defer m.pollWG.Done()
+		m.pollWG.Go(func() {
 			ticker := time.NewTicker(interval)
 			defer ticker.Stop()
 			for {
@@ -488,7 +500,7 @@ func (m *ServiceManager) StartPolling(interval time.Duration) {
 					m.pollOnce()
 				}
 			}
-		}()
+		})
 	})
 }
 
@@ -594,17 +606,16 @@ func (m *ServiceManager) Scan() error {
 // AggregateState returns "all", "some", or "none" describing how many services
 // are running.
 func AggregateState(services []Service) string {
-	total, running := 0, 0
+	running := 0
 	for _, s := range services {
-		total++
 		if s.Running {
 			running++
 		}
 	}
 	switch {
-	case total == 0 || running == 0:
+	case len(services) == 0 || running == 0:
 		return "none"
-	case running == total:
+	case running == len(services):
 		return "all"
 	default:
 		return "some"
