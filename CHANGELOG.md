@@ -5,6 +5,13 @@ automatically by [release-please](https://github.com/googleapis/release-please)
 from [Conventional Commits](CONTRIBUTING.md) — do not edit released sections by
 hand; new entries are prepended on release.
 
+## [0.3.1](https://github.com/shad0wP/helm/compare/v0.3.0...v0.3.1) (2026-08-13)
+
+
+### Bug Fixes
+
+* harden service control and release integrity ([c7fbde0](https://github.com/shad0wP/helm/commit/c7fbde017f85ccce11eb9a8e0006fcb0190cfa23))
+
 ## [0.3.0](https://github.com/shad0wP/helm/compare/v0.2.0...v0.3.0) (2026-07-19)
 
 

@@ -1,83 +1,38 @@
-# Feel free to remove those if you don't want/need to use them.
-# Make sure to check the documentation at https://nfpm.goreleaser.com
-#
-# The lines below are called `modelines`. See `:help modeline`
-
-name: "helm"
+name: helm
 arch: ${GOARCH}
-platform: "linux"
-version: "0.3.0" # x-release-please-version
-section: "default"
-priority: "extra"
+platform: linux
+version: 0.3.1
+section: default
+priority: extra
 maintainer: shad0wP <202858710+shad0wP@users.noreply.github.com>
-description: "Helm — native menu bar / system tray controller for a local AI stack."
-vendor: "shad0wP"
-homepage: "https://github.com/shad0wP/helm"
-license: "MIT"
-release: "1"
-
+description: Helm — native menu bar / system tray controller for a local AI stack.
+vendor: shad0wP
+homepage: https://github.com/shad0wP/helm
+license: MIT
+release: '1'
 contents:
-  - src: "./bin/helm"
-    dst: "/usr/local/bin/helm"
-  - src: "./bin/helm-cli"
-    dst: "/usr/local/bin/helm-cli"
-  - src: "./build/appicon.png"
-    dst: "/usr/share/icons/hicolor/128x128/apps/helm.png"
-  - src: "./build/linux/helm.desktop"
-    dst: "/usr/share/applications/helm.desktop"
-  - src: "./LICENSE"
-    dst: "/usr/share/licenses/helm/LICENSE"
-
-# Default dependencies for the GTK4 + WebKitGTK 6.0 stack (Ubuntu 24.04+ / Debian 13+)
+  - src: ./bin/helm
+    dst: /usr/local/bin/helm
+  - src: ./bin/helm-cli
+    dst: /usr/local/bin/helm-cli
+  - src: ./build/appicon.png
+    dst: /usr/share/icons/hicolor/128x128/apps/helm.png
+  - src: ./build/linux/helm.desktop
+    dst: /usr/share/applications/helm.desktop
+  - src: ./LICENSE
+    dst: /usr/share/licenses/helm/LICENSE
 depends:
   - libgtk-4-1
   - libwebkitgtk-6.0-4
-
-# Distribution-specific overrides for different package formats
 overrides:
-  # RPM packages for Fedora / RHEL / AlmaLinux / Rocky Linux
   rpm:
     depends:
       - gtk4
       - webkitgtk6.0
-
-  # Arch Linux packages
   archlinux:
     depends:
       - gtk4
       - webkitgtk-6.0
-
-# scripts section: desktop database refresh + polkit rule generation after
-# install, polkit rule cleanup after removal
 scripts:
-  postinstall: "./build/linux/nfpm/scripts/postinstall.sh"
-  postremove: "./build/linux/nfpm/scripts/postremove.sh"
-
-# If you build your app with -tags gtk3 (legacy WebKit2GTK 4.1 stack — supported through v3.0.x, removed in v3.1),
-# replace the depends/overrides above with these:
-#
-# depends:
-#   - libgtk-3-0
-#   - libwebkit2gtk-4.1-0
-# overrides:
-#   rpm:
-#     depends:
-#       - gtk3
-#       - webkit2gtk4.1
-#   archlinux:
-#     depends:
-#       - gtk3
-#       - webkit2gtk-4.1
-#
-# replaces:
-#   - foobar
-# provides:
-#   - bar
-# recommends:
-#   - whatever
-# suggests:
-#   - something-else
-# conflicts:
-#   - not-foo
-#   - not-bar
-# changelog: "changelog.yaml"
+  postinstall: ./build/linux/nfpm/scripts/postinstall.sh
+  postremove: ./build/linux/nfpm/scripts/postremove.sh
