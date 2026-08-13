@@ -89,6 +89,15 @@ jobs:
           files=( helm-*-linux-amd64.tar.gz *.pkg.tar.zst *.deb *.rpm )
           sha256sum "${files[@]}" | tee SHA256SUMS-linux.txt
 
+      - name: Verify current Arch package installs and launches
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          docker run --rm --privileged --shm-size=1g \
+            -e HELM_PACKAGE_DIR=/work/bin \
+            -v "$PWD:/work" -w /work \
+            archlinux:latest \
+            bash /work/build/linux/verify-arch-package.sh
+
       - name: Upload build artifacts (workflow)
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

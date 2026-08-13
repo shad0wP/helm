@@ -22,6 +22,9 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       RELEASE_TAG: ${{ inputs.release_tag }}
     steps:
+      - name: Checkout verification script
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
       - name: Relax unprivileged user-namespace restriction (host)
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
 
@@ -32,67 +35,10 @@ jobs:
           gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" -p '*.pkg.tar.zst' -D pkg
           ls -la pkg
 
-      - name: Write in-container verification script
-        run: |
-          cat > verify-in-arch.sh <<'EOS'
-          #!/usr/bin/env bash
-          set -euxo pipefail
-
-          # Tooling needed to install the package and run the app headless.
-          pacman -Syu --noconfirm --needed xorg-server-xvfb dbus mesa ttf-dejavu
-
-          # Install the actual released package (pacman resolves gtk4 + webkitgtk-6.0).
-          pacman -U --noconfirm /work/pkg/*.pkg.tar.zst
-          echo "--- installed files ---"
-          pacman -Ql helm | grep -E 'bin/helm|\.desktop|\.png'
-          echo "--- declared dependencies ---"
-          pacman -Qi helm | grep -i 'depends on'
-
-          # Every shared library must resolve against the installed Arch stack.
-          BIN=/usr/local/bin/helm
-          ldd "$BIN"
-          if ldd "$BIN" | grep -i 'not found'; then
-            echo "FAIL: unresolved shared libraries"; exit 1
-          fi
-          echo "OK: all shared libraries resolved"
-
-          export WEBKIT_DISABLE_COMPOSITING_MODE=1
-          export WEBKIT_DISABLE_DMABUF_RENDERER=1
-          export LIBGL_ALWAYS_SOFTWARE=1
-          export GALLIUM_DRIVER=llvmpipe
-          export GDK_BACKEND=x11
-
-          dbus-run-session -- xvfb-run -a -s "-screen 0 1280x1024x24" bash -c '
-            set -x
-            helm > /tmp/helm.log 2>&1 &
-            PID=$!
-            sleep 12
-            STATUS=0
-            if kill -0 "$PID" 2>/dev/null; then
-              if ss -ltnp | grep -F "pid=$PID,"; then
-                echo "RESULT: FAIL - local-only Helm opened a TCP listener"
-                kill -TERM "$PID" 2>/dev/null || true
-                exit 1
-              fi
-              echo "RESULT: PASS - helm launched and stayed alive for 12s (PID $PID)"
-              kill -TERM "$PID" 2>/dev/null || true
-              sleep 1
-            else
-              echo "RESULT: FAIL - helm exited prematurely"
-              STATUS=1
-            fi
-            echo "========== helm runtime log =========="
-            cat /tmp/helm.log || true
-            echo "======================================"
-            exit $STATUS
-          '
-          EOS
-          chmod +x verify-in-arch.sh
-
       - name: Run Arch container (privileged) and verify
         run: |
-          set -eux
           docker run --rm --privileged --shm-size=1g \
+            -e HELM_PACKAGE_DIR=/work/pkg \
             -v "$PWD:/work" -w /work \
             archlinux:latest \
-            bash /work/verify-in-arch.sh
+            bash /work/build/linux/verify-arch-package.sh
