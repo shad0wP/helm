@@ -10,11 +10,11 @@
         <key>CFBundleIdentifier</key>
             <string>io.github.shad0wp.helm</string>
         <key>CFBundleVersion</key>
-            <string>0.3.0</string><!-- x-release-please-version -->
+            <string>0.3.1</string><!-- x-release-please-version -->
         <key>CFBundleGetInfoString</key>
             <string>Helm — local AI stack controller (dev)</string>
         <key>CFBundleShortVersionString</key>
-            <string>0.3.0</string><!-- x-release-please-version -->
+            <string>0.3.1</string><!-- x-release-please-version -->
         <key>CFBundleIconFile</key>
             <string>icons</string>
         <key>LSMinimumSystemVersion</key>

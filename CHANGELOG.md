@@ -5,6 +5,31 @@ automatically by [release-please](https://github.com/googleapis/release-please)
 from [Conventional Commits](CONTRIBUTING.md) — do not edit released sections by
 hand; new entries are prepended on release.
 
+## [0.3.1] - 2026-08-13
+
+### Added
+
+- Added a release gate that installs the freshly built Arch package, resolves all shared
+  libraries, launches Helm headlessly, and verifies that the local-only application opens no
+  TCP listener before artifacts can be published.
+
+### Changed
+
+- Made package verification non-destructive by default: manually dispatched builds upload
+  workflow artifacts without modifying an existing GitHub Release unless publishing is
+  explicitly requested.
+- Strengthened release quality checks with pinned toolchain/action versions, strict frontend
+  typechecking, race tests, static analysis, vulnerability scanning, and native Wails builds.
+
+### Fixed
+
+- Hardened service control against stale or duplicate PIDs, concurrent mutations, and accidental
+  signalling of Helm's own process group.
+- Corrected start/stop capabilities for supervised and terminal-launched services and returned
+  authoritative service snapshots after every operation.
+- Bounded subprocess, Ollama, and update I/O; tightened configuration parsing, checksum handling,
+  lifecycle shutdown, and frontend error/state handling.
+
 ## [0.3.0](https://github.com/shad0wP/helm/compare/v0.2.0...v0.3.0) (2026-07-19)
 
 
