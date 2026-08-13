@@ -6,8 +6,13 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: "Release tag to attach the Linux artifacts to"
+        description: "Version tag to build and validate against version.txt"
         required: true
+      publish:
+        description: "Attach artifacts to that release (immutable; fails if assets exist)"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -97,6 +102,7 @@ jobs:
           if-no-files-found: error
 
       - name: Attach to GitHub release
+        if: ${{ inputs.publish }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
