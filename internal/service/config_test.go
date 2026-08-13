@@ -106,6 +106,12 @@ func TestParseUserConfig(t *testing.T) {
 			// otherwise flow into display strings and TCP dial attempts.
 			"systemctl negative port": `{"services":[{"id":"x","name":"X","kind":"systemctl","unit":"u","port":-5}]}`,
 			"docker port too high":    `{"services":[{"id":"x","name":"X","kind":"docker","container":"c","port":70000}]}`,
+			"unknown field":           `{"services":[{"id":"x","name":"X","kind":"port","port":1,"surprise":true}]}`,
+			"multiple JSON values":    `{"services":[]} {"services":[]}`,
+			"duplicate id":            `{"services":[{"id":"x","name":"X","kind":"port","port":1},{"id":"x","name":"Y","kind":"port","port":2}]}`,
+			"option-like unit":        `{"services":[{"id":"x","name":"X","kind":"systemctl","unit":"--help"}]}`,
+			"option-like container":   `{"services":[{"id":"x","name":"X","kind":"docker","container":"--all"}]}`,
+			"unsafe id":               `{"services":[{"id":"<script>","name":"X","kind":"port","port":1}]}`,
 		}
 		for name, raw := range cases {
 			t.Run(name, func(t *testing.T) {
@@ -180,7 +186,7 @@ func TestMergeServices(t *testing.T) {
 		}
 	})
 
-	t.Run("duplicate ids in user config: last one wins, no duplicates in output", func(t *testing.T) {
+	t.Run("merge remains deterministic for programmatically supplied duplicate ids", func(t *testing.T) {
 		user := []Service{
 			{ID: "vllm", Name: "First", Kind: KindProcess, Port: 8000},
 			{ID: "vllm", Name: "Second", Kind: KindProcess, Port: 8001},

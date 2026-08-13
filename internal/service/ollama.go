@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 )
 
@@ -16,6 +18,7 @@ import (
 
 // defaultOllamaBase is where a stock Ollama listens.
 const defaultOllamaBase = "http://127.0.0.1:11434"
+const maxOllamaResponseBytes = 1 << 20
 
 type ollamaPSResponse struct {
 	Models []struct {
@@ -40,7 +43,14 @@ func ollamaLoadedModels(base string) ([]string, error) {
 		return nil, fmt.Errorf("ollama /api/ps returned %s", resp.Status)
 	}
 	var ps ollamaPSResponse
-	if err := json.NewDecoder(resp.Body).Decode(&ps); err != nil {
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxOllamaResponseBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("reading /api/ps: %w", err)
+	}
+	if len(data) > maxOllamaResponseBytes {
+		return nil, errors.New("ollama /api/ps response exceeds 1 MiB")
+	}
+	if err := json.Unmarshal(data, &ps); err != nil {
 		return nil, fmt.Errorf("decoding /api/ps: %w", err)
 	}
 	names := make([]string, 0, len(ps.Models))

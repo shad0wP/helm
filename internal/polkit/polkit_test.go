@@ -33,7 +33,7 @@ func TestSystemUnits(t *testing.T) {
 func TestGenerateRule(t *testing.T) {
 	rule := GenerateRule([]string{"ollama.service", "myllm.service"})
 
-	// Security constraints: exactly one action.id, wheel-gated, only the
+	// Security constraints: exactly one action.id, admin-group-gated, only the
 	// listed units, only start/stop/restart.
 	if n := strings.Count(rule, "action.id =="); n != 1 {
 		t.Errorf("rule checks %d action ids, want exactly 1", n)
@@ -41,6 +41,7 @@ func TestGenerateRule(t *testing.T) {
 	for _, must := range []string{
 		`action.id == "org.freedesktop.systemd1.manage-units"`,
 		`subject.isInGroup("wheel")`,
+		`subject.isInGroup("sudo")`,
 		`"ollama.service"`,
 		`"myllm.service"`,
 		`["start", "stop", "restart"]`,

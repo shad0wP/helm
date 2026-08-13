@@ -3,8 +3,16 @@ package service
 import (
 	"net"
 	"os"
+	"syscall"
 	"testing"
 )
+
+func TestSignalGroupRefusesHelmsOwnProcessGroup(t *testing.T) {
+	err := signalGroup(os.Getpid(), syscall.Signal(0))
+	if err == nil {
+		t.Fatal("signalGroup(self) = nil, want refusal for Helm's own process group")
+	}
+}
 
 // TestResolvePIDsForPortLive exercises the real lsof/ss path against a listener
 // owned by this test process. Skips where those tools are unavailable/sandboxed

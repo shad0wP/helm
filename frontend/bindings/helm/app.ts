@@ -78,27 +78,28 @@ export function OpenReleasePage(url: string): $CancellablePromise<void> {
 /**
  * Scan re-runs auto-detection and rebuilds the service list.
  */
-export function Scan(): $CancellablePromise<void> {
+export function Scan(): $CancellablePromise<service$0.Service[] | null> {
     return $Call.ByID(2265593888);
 }
 
 /**
  * StartAll starts every controllable, stopped service.
  */
-export function StartAll(): $CancellablePromise<void> {
+export function StartAll(): $CancellablePromise<service$0.Service[] | null> {
     return $Call.ByID(1593724210);
 }
 
 /**
  * StopAll stops every controllable, running service.
  */
-export function StopAll(): $CancellablePromise<void> {
+export function StopAll(): $CancellablePromise<service$0.Service[] | null> {
     return $Call.ByID(1829082188);
 }
 
 /**
- * Toggle starts or stops the named service.
+ * Toggle starts or stops the named service and returns the authoritative
+ * post-operation snapshot so optimistic UI state cannot drift from reality.
  */
-export function Toggle(id: string): $CancellablePromise<void> {
+export function Toggle(id: string): $CancellablePromise<service$0.Service[] | null> {
     return $Call.ByID(1190013837, id);
 }

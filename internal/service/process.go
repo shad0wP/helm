@@ -146,8 +146,13 @@ func resolvePIDsForPort(port int) []int {
 	defer cancel()
 	if out, err := exec.CommandContext(ctx, "lsof", "-t", fmt.Sprintf("-iTCP:%d", port), "-sTCP:LISTEN").Output(); err == nil {
 		var pids []int
+		seen := make(map[int]struct{})
 		for _, f := range strings.Fields(string(out)) {
-			if pid, err := strconv.Atoi(f); err == nil {
+			if pid, err := strconv.Atoi(f); err == nil && pid > 0 {
+				if _, duplicate := seen[pid]; duplicate {
+					continue
+				}
+				seen[pid] = struct{}{}
 				pids = append(pids, pid)
 			}
 		}
@@ -156,8 +161,13 @@ func resolvePIDsForPort(port int) []int {
 		}
 	}
 	var pids []int
+	seen := make(map[int]struct{})
 	for _, l := range listListeners() {
-		if l.Port == port {
+		if l.Port == port && l.PID > 0 {
+			if _, duplicate := seen[l.PID]; duplicate {
+				continue
+			}
+			seen[l.PID] = struct{}{}
 			pids = append(pids, l.PID)
 		}
 	}
@@ -247,6 +257,9 @@ func stopByPort(port int, name string) error {
 
 	signalled := false
 	for _, pid := range pids {
+		if !pidOwnsPort(pid, port) {
+			return fmt.Errorf("cannot stop %s: pid %d no longer owns port %d", name, pid, port)
+		}
 		sup := attributePID(pid)
 		switch sup.Method {
 		case "systemd":
@@ -255,11 +268,11 @@ func stopByPort(port int, name string) error {
 				return fmt.Errorf("stopping %s via systemd unit %s: %w", name, sup.Target, err)
 			}
 		case "systemd-user":
-			if err := runControl([]string{"systemctl", "--user", "stop", sup.Target}); err != nil {
+			if err := runControl([]string{"systemctl", "--user", "stop", "--", sup.Target}); err != nil {
 				return fmt.Errorf("stopping %s via user unit %s: %w", name, sup.Target, err)
 			}
 		case "docker":
-			if err := runControl([]string{"docker", "stop", sup.Target}); err != nil {
+			if err := runControl([]string{"docker", "stop", "--", sup.Target}); err != nil {
 				return fmt.Errorf("stopping %s via container %s: %w", name, sup.Target, err)
 			}
 		default:
@@ -291,6 +304,17 @@ func stopByPort(port int, name string) error {
 		return fmt.Errorf("stop of %s did not release port %d", name, port)
 	}
 	return nil
+}
+
+// pidOwnsPort closes the discovery-to-signal race by checking that the target
+// PID still owns the listener immediately before Helm controls it.
+func pidOwnsPort(pid, port int) bool {
+	for _, listenerPID := range resolvePIDsForPort(port) {
+		if listenerPID == pid {
+			return true
+		}
+	}
+	return false
 }
 
 // discoverProcesses enumerates listening sockets and returns a KindProcess

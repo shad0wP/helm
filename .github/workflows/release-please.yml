@@ -13,7 +13,50 @@ permissions:
   pull-requests: write
 
 jobs:
+  quality:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: stable
+          check-latest: true
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "24"
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libgtk-4-dev libwebkitgtk-6.0-dev
+      - name: Install pinned Wails and staticcheck
+        run: |
+          go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-alpha2.106
+          go install honnef.co/go/tools/cmd/staticcheck@v0.7.0
+          go install golang.org/x/vuln/cmd/govulncheck@v1.6.0
+      - name: Verify source and dependencies
+        run: |
+          (cd frontend && npm ci --no-audit --no-fund && npm audit --audit-level=high && npm run build)
+          version="$(tr -d '[:space:]' < version.txt)"
+          grep -F "version: \"$version\" # x-release-please-version" build/config.yml
+          grep -F "version: \"$version\" # x-release-please-version" build/linux/nfpm/nfpm.yaml
+          test "$(grep -c ">$version</string><!-- x-release-please-version -->" build/darwin/Info.plist)" -eq 2
+          test -z "$(gofmt -l .)"
+          go vet ./...
+          staticcheck ./...
+          go test -race ./...
+          govulncheck ./...
+          wails3 doctor
+          wails3 build
+          go build -tags server -o /tmp/helm-server-disabled .
+          if /tmp/helm-server-disabled >/tmp/helm-server.log 2>&1; then
+            echo "FAIL: unsupported server mode started"; exit 1
+          fi
+          grep -F "Helm server mode is disabled" /tmp/helm-server.log
+
   release-please:
+    needs: quality
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -29,7 +72,7 @@ jobs:
       # action.yml to target Node 24 yet). The runner safely forces execution
       # onto its bundled Node 24 regardless of the manifest, so this is
       # cosmetic; no functional impact.
-      - uses: googleapis/release-please-action@v4
+      - uses: googleapis/release-please-action@8b8fd2cc23b2e18957157a9d923d75aa0c6f6ad5 # v4
         id: release
         with:
           config-file: .github/release-please-config.json
@@ -49,24 +92,24 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       TAG: ${{ needs.release-please.outputs.tag_name }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Install GTK4 + WebKitGTK 6.0
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends libgtk-4-dev libwebkitgtk-6.0-dev
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: stable
           check-latest: true
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: "20"
+          node-version: "24"
 
       - name: Install Wails v3 CLI
-        run: go install github.com/wailsapp/wails/v3/cmd/wails3@latest
+        run: go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-alpha2.106
 
       - name: Build + package (linux/amd64)
         run: |
@@ -92,7 +135,7 @@ jobs:
           cd bin
           gh release upload "$TAG" \
             helm-*-linux-amd64.tar.gz ./*.pkg.tar.zst ./*.deb ./*.rpm SHA256SUMS-linux.txt \
-            --repo "$GITHUB_REPOSITORY" --clobber
+            --repo "$GITHUB_REPOSITORY"
 
   build-macos:
     needs: release-please
@@ -104,19 +147,19 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       TAG: ${{ needs.release-please.outputs.tag_name }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: stable
           check-latest: true
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: "20"
+          node-version: "24"
 
       - name: Install Wails v3 CLI
-        run: go install github.com/wailsapp/wails/v3/cmd/wails3@latest
+        run: go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-alpha2.106
 
       - name: Build universal .app + archives
         run: |
@@ -140,4 +183,4 @@ jobs:
           cd bin
           gh release upload "$TAG" \
             Helm-*-macos-universal.app.zip helm-*-macos-universal.tar.gz SHA256SUMS-macos.txt \
-            --repo "$GITHUB_REPOSITORY" --clobber
+            --repo "$GITHUB_REPOSITORY"

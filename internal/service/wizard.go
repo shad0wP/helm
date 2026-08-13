@@ -23,8 +23,35 @@ func NeedsFirstRunScan() bool {
 	if path == "" {
 		return false
 	}
+	if _, err := os.Stat(firstRunMarkerPath()); err == nil {
+		return false
+	}
 	_, err := os.Stat(path)
 	return os.IsNotExist(err)
+}
+
+func firstRunMarkerPath() string {
+	path := userConfigPath()
+	if path == "" {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(path), ".first-run-complete")
+}
+
+// MarkFirstRunComplete records that the one-time discovery was completed or
+// explicitly skipped without inventing another service configuration format.
+func MarkFirstRunComplete() error {
+	path := firstRunMarkerPath()
+	if path == "" {
+		return fmt.Errorf("could not determine the user config path (no $HOME)")
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("creating first-run state directory: %w", err)
+	}
+	if err := os.WriteFile(path, []byte("completed\n"), 0o600); err != nil {
+		return fmt.Errorf("recording first-run completion: %w", err)
+	}
+	return nil
 }
 
 // DiscoverFirstRunCandidates runs the same ss/lsof discovery scan Scan() uses

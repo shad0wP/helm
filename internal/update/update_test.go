@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -37,6 +38,8 @@ func TestCompareVersions(t *testing.T) {
 		{"1.2.3-rc1", "1.2.3", -1},
 		{"1.2.3", "1.2.3-rc1", 1},
 		{"1.2.3-rc1", "1.2.3-rc2", -1},
+		{"1.2.3-rc.10", "1.2.3-rc.2", 1},
+		{"1.2.3-1", "1.2.3-alpha", -1},
 		{"1.2.3+build5", "1.2.3", 0}, // build metadata ignored
 		{"v0.1.4", "v0.1.3", 1},
 		// Adversarial/degenerate inputs: garbage must degrade to 0.0.0 and
@@ -276,4 +279,45 @@ func TestDownloadVerifiesChecksum(t *testing.T) {
 			t.Error("expected refusal when no checksum is published for the asset")
 		}
 	})
+
+	t.Run("existing download is preserved", func(t *testing.T) {
+		destDir := t.TempDir()
+		existing := filepath.Join(destDir, "helm-0.1.3-linux-amd64.tar.gz")
+		if err := os.WriteFile(existing, []byte("keep-me"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		sums = sha256Hex(payload) + "  helm-0.1.3-linux-amd64.tar.gz\n"
+		path, err := Download(context.Background(), assetURL, sumsURL, destDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if path == existing {
+			t.Fatal("Download overwrote the existing destination")
+		}
+		original, err := os.ReadFile(existing)
+		if err != nil || string(original) != "keep-me" {
+			t.Fatalf("existing download changed: %q, %v", original, err)
+		}
+	})
+
+	t.Run("declared oversized asset is rejected before writing", func(t *testing.T) {
+		oversized := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/sums" {
+				_, _ = w.Write([]byte(sha256Hex(payload) + "  huge.tar.gz\n"))
+				return
+			}
+			w.Header().Set("Content-Length", "524288001")
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer oversized.Close()
+		if _, err := Download(context.Background(), oversized.URL+"/huge.tar.gz", oversized.URL+"/sums", t.TempDir()); err == nil {
+			t.Fatal("oversized asset was accepted")
+		}
+	})
+}
+
+func TestReadLimitedRejectsOversizedMetadata(t *testing.T) {
+	if _, err := readLimited(strings.NewReader("12345"), 4); err == nil {
+		t.Fatal("readLimited accepted an oversized response")
+	}
 }

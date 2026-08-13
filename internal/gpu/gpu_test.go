@@ -1,9 +1,19 @@
 package gpu
 
 import (
+	"context"
 	"errors"
 	"testing"
+	"time"
 )
+
+type blockingRunner struct{}
+
+func (blockingRunner) Available(string) bool { return true }
+func (blockingRunner) Output(ctx context.Context, _ string, _ ...string) (string, error) {
+	<-ctx.Done()
+	return "", ctx.Err()
+}
 
 // fakeRunner mocks nvidia-smi: fixed output/error, and records whether
 // Output was ever called so tests can prove the LookPath short-circuit.
@@ -14,7 +24,7 @@ type fakeRunner struct {
 	called    bool
 }
 
-func (f *fakeRunner) Output(name string, args ...string) (string, error) {
+func (f *fakeRunner) Output(_ context.Context, name string, args ...string) (string, error) {
 	f.called = true
 	return f.out, f.err
 }
@@ -85,5 +95,15 @@ func TestFormatDelta(t *testing.T) {
 		if got := FormatDelta(tc.before, tc.after, tc.stopped); got != tc.want {
 			t.Errorf("FormatDelta(%d, %d, %v) = %q, want %q", tc.before, tc.after, tc.stopped, got, tc.want)
 		}
+	}
+}
+
+func TestUsedMBCommandIsBounded(t *testing.T) {
+	started := time.Now()
+	if _, ok := (GPU{R: blockingRunner{}}).UsedMB(); ok {
+		t.Fatal("blocking nvidia-smi unexpectedly returned usable telemetry")
+	}
+	if elapsed := time.Since(started); elapsed > commandTimeout+time.Second {
+		t.Fatalf("UsedMB exceeded its command timeout: %s", elapsed)
 	}
 }

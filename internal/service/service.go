@@ -50,7 +50,7 @@ type Service struct {
 
 // AutoPorts is the list of additional ports probed by Scan(). Any port found
 // open (and not already owned by a known service) is surfaced as an
-// auto-detected, read-only service.
+// auto-detected process service when its owning PID can be resolved.
 var AutoPorts = []struct {
 	Port  int
 	Name  string
@@ -99,7 +99,7 @@ func isRunningSystemctl(unit string) bool {
 	defer cancel()
 	// is-active exits non-zero when the unit is inactive but still prints the
 	// state to stdout, so we inspect the output rather than the exit code.
-	out, _ := exec.CommandContext(ctx, "systemctl", "is-active", unit).Output()
+	out, _ := exec.CommandContext(ctx, "systemctl", "is-active", "--", unit).Output()
 	return strings.TrimSpace(string(out)) == "active"
 }
 
@@ -107,7 +107,7 @@ func isRunningSystemctl(unit string) bool {
 func isRunningUserSystemctl(unit string) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
 	defer cancel()
-	out, _ := exec.CommandContext(ctx, "systemctl", "--user", "is-active", unit).Output()
+	out, _ := exec.CommandContext(ctx, "systemctl", "--user", "is-active", "--", unit).Output()
 	return strings.TrimSpace(string(out)) == "active"
 }
 
@@ -115,7 +115,7 @@ func isRunningUserSystemctl(unit string) bool {
 func isRunningDocker(container string) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "docker", "inspect", "--format", "{{.State.Status}}", container).Output()
+	out, err := exec.CommandContext(ctx, "docker", "inspect", "--format", "{{.State.Status}}", "--", container).Output()
 	if err != nil {
 		return false
 	}
@@ -181,9 +181,29 @@ func runControl(argv []string) error {
 // a clear error instead of hanging on a hidden prompt.
 func systemctlAttempts(action, unit string) [][]string {
 	return [][]string{
-		{"systemctl", "--no-ask-password", action, unit},
-		{"sudo", "-n", "systemctl", action, unit},
+		{"systemctl", "--no-ask-password", action, "--", unit},
+		{"sudo", "-n", "systemctl", action, "--", unit},
 	}
+}
+
+// CanStart and CanStop describe Helm's actual control capabilities. A raw
+// process has no launch command, so it is stop-only while running; a port
+// probe is always observational.
+func CanStart(s Service) bool {
+	return s.Kind == KindSystemctl || s.Kind == KindDocker
+}
+
+func CanStop(s Service) bool {
+	return s.Kind == KindSystemctl || s.Kind == KindDocker || (s.Kind == KindProcess && s.Running)
+}
+
+// CanToggle reports whether the service's current state has a supported
+// inverse operation.
+func CanToggle(s Service) bool {
+	if s.Running {
+		return CanStop(s)
+	}
+	return CanStart(s)
 }
 
 // runSystemctl applies a system-unit action via the attempt chain above.
@@ -220,14 +240,14 @@ func controlService(s Service, start bool) error {
 			return runSystemctl("stop", s.Unit)
 		}
 		if isRunningUserSystemctl(s.Unit) {
-			return runControl([]string{"systemctl", "--user", "stop", s.Unit})
+			return runControl([]string{"systemctl", "--user", "stop", "--", s.Unit})
 		}
 		if s.Port > 0 && isRunningPort(s.Port) {
 			return stopByPort(s.Port, s.Name)
 		}
 		return nil // nothing is running; stopping is a no-op
 	case KindDocker:
-		return runControl([]string{"docker", action, s.Container})
+		return runControl([]string{"docker", action, "--", s.Container})
 	case KindProcess:
 		if start {
 			return fmt.Errorf("cannot start %s — Helm does not know its launch command; start it manually", s.Name)
@@ -261,11 +281,14 @@ func metaFor(s Service) string {
 
 // ServiceManager owns the live snapshot of services and the change callback.
 type ServiceManager struct {
-	mu       sync.RWMutex
-	services []Service       // current snapshot; index stable between rebuilds
-	onChange func([]Service) // invoked after any poll cycle that changes state
-	stop     chan struct{}   // closed to stop the polling goroutine
-	stopOnce sync.Once       // guards a single close of stop
+	mu        sync.RWMutex
+	opMu      sync.Mutex
+	services  []Service       // current snapshot; index stable between rebuilds
+	onChange  func([]Service) // invoked after any poll cycle that changes state
+	stop      chan struct{}   // closed to stop the polling goroutine
+	startOnce sync.Once       // starts at most one polling goroutine
+	stopOnce  sync.Once       // guards a single close of stop
+	pollWG    sync.WaitGroup
 }
 
 // NewServiceManager builds the manager with an initial, fully-probed snapshot
@@ -274,6 +297,24 @@ func NewServiceManager() *ServiceManager {
 	m := &ServiceManager{}
 	m.rebuild()
 	return m
+}
+
+// NewDeferredServiceManager returns the configured built-in/user service list
+// immediately, without shelling out or probing sockets. The GUI uses this so
+// the tray appears promptly, then calls Scan in a background goroutine. The
+// CLI keeps using NewServiceManager because each invocation needs a complete
+// synchronous snapshot before selecting an action.
+func NewDeferredServiceManager() *ServiceManager {
+	known := defaultServices()
+	if user, err := loadUserServices(); err != nil {
+		log.Printf("helm: ignoring user config: %v", err)
+	} else if len(user) > 0 {
+		known = mergeServices(known, user)
+	}
+	for i := range known {
+		known[i].Meta = metaFor(known[i])
+	}
+	return &ServiceManager{services: known}
 }
 
 // SetOnChange registers the callback fired whenever the service state changes.
@@ -299,8 +340,16 @@ func (m *ServiceManager) rebuild() {
 	// actually running — a known-but-stopped service must not mask a live
 	// listener on its port (e.g. ollama unit down, manual `ollama serve` up).
 	claimed := map[int]bool{}
+	var probeWG sync.WaitGroup
 	for i := range known {
-		known[i].Running = checkRunning(known[i])
+		probeWG.Add(1)
+		go func(index int) {
+			defer probeWG.Done()
+			known[index].Running = checkRunning(known[index])
+		}(i)
+	}
+	probeWG.Wait()
+	for i := range known {
 		known[i].Meta = metaFor(known[i])
 		if known[i].Port > 0 && known[i].Running {
 			claimed[known[i].Port] = true
@@ -310,11 +359,23 @@ func (m *ServiceManager) rebuild() {
 
 	// Fixed probe list. Discovered listeners are KindProcess — stoppable —
 	// because an open port means a live local process.
-	for _, ap := range AutoPorts {
+	autoRunning := make([]bool, len(AutoPorts))
+	for i, ap := range AutoPorts {
 		if claimed[ap.Port] {
 			continue
 		}
-		if isRunningPort(ap.Port) {
+		probeWG.Add(1)
+		go func(index, port int) {
+			defer probeWG.Done()
+			autoRunning[index] = isRunningPort(port)
+		}(i, ap.Port)
+	}
+	probeWG.Wait()
+	for i, ap := range AutoPorts {
+		if claimed[ap.Port] {
+			continue
+		}
+		if autoRunning[i] {
 			claimed[ap.Port] = true
 			s := Service{
 				ID:      fmt.Sprintf("auto_%d", ap.Port),
@@ -343,11 +404,30 @@ func (m *ServiceManager) rebuild() {
 // refresh re-checks the running state of the current list in place and returns
 // true if anything changed.
 func (m *ServiceManager) refresh() bool {
+	snapshot := m.GetServices()
+	states := make([]bool, len(snapshot))
+	var wg sync.WaitGroup
+	for i := range snapshot {
+		wg.Add(1)
+		go func(index int) {
+			defer wg.Done()
+			states[index] = checkRunning(snapshot[index])
+		}(i)
+	}
+	wg.Wait()
+	running := make(map[string]bool, len(snapshot))
+	for i, s := range snapshot {
+		running[s.ID] = states[i]
+	}
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	changed := false
 	for i := range m.services {
-		r := checkRunning(m.services[i])
+		r, exists := running[m.services[i].ID]
+		if !exists {
+			continue
+		}
 		if r != m.services[i].Running {
 			m.services[i].Running = r
 			m.services[i].Meta = metaFor(m.services[i])
@@ -389,19 +469,27 @@ func (m *ServiceManager) ensureStop() chan struct{} {
 // only on cycles where the state actually changed. The goroutine exits when
 // StopPolling is called.
 func (m *ServiceManager) StartPolling(interval time.Duration) {
+	if interval <= 0 {
+		log.Printf("helm: refusing non-positive polling interval %s", interval)
+		return
+	}
 	stop := m.ensureStop()
-	go func() {
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-stop:
-				return
-			case <-ticker.C:
-				m.pollOnce()
+	m.startOnce.Do(func() {
+		m.pollWG.Add(1)
+		go func() {
+			defer m.pollWG.Done()
+			ticker := time.NewTicker(interval)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-stop:
+					return
+				case <-ticker.C:
+					m.pollOnce()
+				}
 			}
-		}
-	}()
+		}()
+	})
 }
 
 // StopPolling stops the polling goroutine for a graceful shutdown. It is safe to
@@ -409,6 +497,7 @@ func (m *ServiceManager) StartPolling(interval time.Duration) {
 func (m *ServiceManager) StopPolling() {
 	stop := m.ensureStop()
 	m.stopOnce.Do(func() { close(stop) })
+	m.pollWG.Wait()
 }
 
 // pollOnce performs a single poll cycle. It recovers from any panic in the
@@ -446,17 +535,24 @@ func (m *ServiceManager) find(id string) (Service, bool) {
 
 // Toggle starts or stops the named service based on its current state.
 func (m *ServiceManager) Toggle(id string) error {
+	m.opMu.Lock()
+	defer m.opMu.Unlock()
+
 	s, ok := m.find(id)
 	if !ok {
 		return fmt.Errorf("unknown service: %s", id)
 	}
-	if s.Kind == KindPort {
+	if !CanToggle(s) {
+		if s.Kind == KindProcess && !s.Running {
+			return fmt.Errorf("cannot start %s — Helm does not know its launch command; start it manually", s.Name)
+		}
 		return fmt.Errorf("cannot control %s — started externally", s.Name)
 	}
 	if err := controlService(s, !s.Running); err != nil {
 		return err
 	}
-	m.refreshAndNotify()
+	m.refresh()
+	m.notify()
 	return nil
 }
 
@@ -467,23 +563,29 @@ func (m *ServiceManager) StartAll() error { return m.bulk(true) }
 func (m *ServiceManager) StopAll() error { return m.bulk(false) }
 
 func (m *ServiceManager) bulk(start bool) error {
+	m.opMu.Lock()
+	defer m.opMu.Unlock()
+
 	// Every failure is reported (joined), not just the first — a partial
 	// failure must name exactly which services misbehaved. No rollback.
 	var errs []error
 	for _, s := range m.GetServices() {
-		if s.Kind == KindPort || s.Running == start {
+		if s.Running == start || (start && !CanStart(s)) || (!start && !CanStop(s)) {
 			continue
 		}
 		if err := controlService(s, start); err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", s.Name, err))
 		}
 	}
-	m.refreshAndNotify()
+	m.refresh()
+	m.notify()
 	return errors.Join(errs...)
 }
 
 // Scan re-runs auto-detection and rebuilds the services list, then notifies.
 func (m *ServiceManager) Scan() error {
+	m.opMu.Lock()
+	defer m.opMu.Unlock()
 	m.rebuild()
 	m.notify()
 	return nil

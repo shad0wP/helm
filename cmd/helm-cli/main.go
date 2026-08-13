@@ -75,10 +75,20 @@ Configuration: ~/.config/helm/services.json — shared with the tray app.
 
 func runToggle() int {
 	m := service.NewServiceManager()
-	// Mirror the tray semantics: gray (nothing running) means start the
-	// stack; green/amber means stop it.
-	start := service.AggregateState(m.GetServices()) == "none"
+	start := shouldStart(m.GetServices())
 	return bulkWith(m, start)
+}
+
+// shouldStart derives the master action from services Helm can actually
+// launch. Read-only probes and stop-only processes must not prevent a stopped
+// systemd/Docker stack from starting.
+func shouldStart(services []service.Service) bool {
+	for _, svc := range services {
+		if service.CanStart(svc) && svc.Running {
+			return false
+		}
+	}
+	return true
 }
 
 func runBulk(start bool) int {

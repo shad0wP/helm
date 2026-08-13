@@ -1,12 +1,15 @@
 package main
 
 import (
+	"context"
 	"embed"
 	"log"
+	"sync"
 
 	"helm/internal/service"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/wailsapp/wails/v3/pkg/events"
 )
 
 // Wails embeds the built frontend (frontend/dist) into the binary.
@@ -19,7 +22,11 @@ var assets embed.FS
 var version = "dev"
 
 func main() {
-	svc := service.NewServiceManager()
+	lifecycleCtx, cancelLifecycle := context.WithCancel(context.Background())
+	var startupWG sync.WaitGroup
+	started := make(chan struct{})
+	var startedOnce sync.Once
+	svc := service.NewDeferredServiceManager()
 	updater := newUpdater(version)
 	bound := &App{svc: svc, updater: updater}
 
@@ -38,19 +45,44 @@ func main() {
 		},
 		// Gracefully stop background goroutines on shutdown.
 		OnShutdown: func() {
+			cancelLifecycle()
 			svc.StopPolling()
 			updater.Stop()
+			startupWG.Wait()
 		},
 	})
 
 	setupTray(app, svc, bound)
-	// Background update checks emit "update-available" to the frontend and set a
-	// tray tooltip suffix; the initial check is delayed so launch isn't slowed.
+	// Starts only a timer; the first network request is delayed by 30 seconds,
+	// while starting before Run makes shutdown joining deterministic.
 	updater.Start(app)
-	// One-shot first-run discovery wizard (only offers anything the first time
-	// ~/.config/helm/services.json doesn't exist yet); runs in its own
-	// goroutine so it never blocks startup or the polling loop.
-	go runFirstRunWizard(app, svc)
+	startupWG.Add(1)
+	go func() {
+		defer startupWG.Done()
+		select {
+		case <-lifecycleCtx.Done():
+			return
+		case <-started:
+		}
+
+		var jobs sync.WaitGroup
+		jobs.Add(2)
+		go func() {
+			defer jobs.Done()
+			if err := svc.Scan(); err != nil {
+				log.Printf("helm: initial service scan failed: %v", err)
+			}
+		}()
+		go func() {
+			defer jobs.Done()
+			runFirstRunWizard(lifecycleCtx, app, svc)
+		}()
+		jobs.Wait()
+	}()
+
+	app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
+		startedOnce.Do(func() { close(started) })
+	})
 
 	if err := app.Run(); err != nil {
 		log.Fatal(err)

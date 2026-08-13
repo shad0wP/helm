@@ -32,14 +32,21 @@ type updater struct {
 	last update.Info // most recent successful check
 	tray *application.SystemTray
 
-	stop     chan struct{}
-	stopOnce sync.Once
+	ctx       context.Context
+	cancel    context.CancelFunc
+	stop      chan struct{}
+	startOnce sync.Once
+	stopOnce  sync.Once
+	wg        sync.WaitGroup
 }
 
 func newUpdater(version string) *updater {
+	ctx, cancel := context.WithCancel(context.Background())
 	return &updater{
 		version: version,
 		baseURL: update.DefaultReleasesURL,
+		ctx:     ctx,
+		cancel:  cancel,
 		stop:    make(chan struct{}),
 	}
 }
@@ -47,24 +54,32 @@ func newUpdater(version string) *updater {
 // Start launches the background check loop and remembers the app for event
 // emission and tray tooltip updates.
 func (u *updater) Start(app *application.App) {
-	go func() {
-		timer := time.NewTimer(updateInitialDelay)
-		defer timer.Stop()
-		for {
-			select {
-			case <-u.stop:
-				return
-			case <-timer.C:
-				u.checkOnce(app)
-				timer.Reset(updateCheckInterval)
+	u.startOnce.Do(func() {
+		u.wg.Add(1)
+		go func() {
+			defer u.wg.Done()
+			timer := time.NewTimer(updateInitialDelay)
+			defer timer.Stop()
+			for {
+				select {
+				case <-u.stop:
+					return
+				case <-timer.C:
+					u.checkOnce(app)
+					timer.Reset(updateCheckInterval)
+				}
 			}
-		}
-	}()
+		}()
+	})
 }
 
 // Stop terminates the background loop (idempotent).
 func (u *updater) Stop() {
-	u.stopOnce.Do(func() { close(u.stop) })
+	u.stopOnce.Do(func() {
+		u.cancel()
+		close(u.stop)
+	})
+	u.wg.Wait()
 }
 
 // checkOnce performs one background check, emitting update-available and
@@ -104,7 +119,7 @@ func (u *updater) setTray(tray *application.SystemTray) {
 
 // Check runs an update check now and caches the result.
 func (u *updater) Check() (update.Info, error) {
-	info, err := update.Check(context.Background(), u.baseURL, u.version)
+	info, err := update.Check(u.ctx, u.baseURL, u.version)
 	if err != nil {
 		return info, err
 	}
@@ -124,7 +139,7 @@ func (u *updater) Download(assetURL string) (string, error) {
 	if sums == "" {
 		return "", errNoChecksums
 	}
-	return update.Download(context.Background(), assetURL, sums, downloadDir())
+	return update.Download(u.ctx, assetURL, sums, downloadDir())
 }
 
 var errNoChecksums = errors.New("no published checksums available — run a check first")

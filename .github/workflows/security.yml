@@ -18,14 +18,14 @@ jobs:
     name: Go vulnerabilities (govulncheck)
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Install GTK4 + WebKitGTK 6.0 (cgo build deps)
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends libgtk-4-dev libwebkitgtk-6.0-dev
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: stable
           check-latest: true
@@ -36,7 +36,7 @@ jobs:
           echo '<!doctype html>' > frontend/dist/index.html
 
       - name: Install govulncheck
-        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.6.0
 
       # Scope to the shipped binaries' packages (avoids the unused iOS/Android
       # scaffold stubs under build/). Exits non-zero if a reachable
@@ -48,6 +48,12 @@ jobs:
       - name: Run tests
         run: go test -race ./internal/... ./cmd/... .
 
+      - name: Vet
+        run: go vet ./...
+
+      - name: Staticcheck
+        run: go run honnef.co/go/tools/cmd/staticcheck@v0.7.0 ./...
+
   npm-audit:
     name: npm dependencies (GitHub Advisory DB)
     runs-on: ubuntu-24.04
@@ -55,14 +61,39 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: "20"
+          node-version: "24"
 
       - name: Install dependencies
         run: npm ci --no-audit --no-fund
 
       - name: Audit (fail on high/critical)
         run: npm audit --audit-level=high
+
+      - name: Typecheck and build
+        run: npm run build
+
+  native-build:
+    name: Wails Linux build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install GTK4 + WebKitGTK 6.0
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libgtk-4-dev libwebkitgtk-6.0-dev
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: stable
+          check-latest: true
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "24"
+      - name: Build with pinned Wails
+        run: |
+          go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-alpha2.106
+          wails3 doctor
+          wails3 build

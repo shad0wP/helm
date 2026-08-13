@@ -50,6 +50,16 @@ func TestNeedsFirstRunScan(t *testing.T) {
 			t.Error("NeedsFirstRunScan() = true, want false once services.json exists")
 		}
 	})
+
+	t.Run("false after the wizard was skipped", func(t *testing.T) {
+		t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+		if err := MarkFirstRunComplete(); err != nil {
+			t.Fatal(err)
+		}
+		if NeedsFirstRunScan() {
+			t.Error("NeedsFirstRunScan() = true after completion marker")
+		}
+	})
 }
 
 func TestSaveFirstRunConfig(t *testing.T) {

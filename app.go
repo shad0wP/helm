@@ -19,17 +19,30 @@ type App struct {
 // GetServices returns the current service snapshot.
 func (a *App) GetServices() []service.Service { return a.svc.GetServices() }
 
-// Toggle starts or stops the named service.
-func (a *App) Toggle(id string) error { return a.svc.Toggle(id) }
+// Toggle starts or stops the named service and returns the authoritative
+// post-operation snapshot so optimistic UI state cannot drift from reality.
+func (a *App) Toggle(id string) ([]service.Service, error) {
+	err := a.svc.Toggle(id)
+	return a.svc.GetServices(), err
+}
 
 // StartAll starts every controllable, stopped service.
-func (a *App) StartAll() error { return a.svc.StartAll() }
+func (a *App) StartAll() ([]service.Service, error) {
+	err := a.svc.StartAll()
+	return a.svc.GetServices(), err
+}
 
 // StopAll stops every controllable, running service.
-func (a *App) StopAll() error { return a.svc.StopAll() }
+func (a *App) StopAll() ([]service.Service, error) {
+	err := a.svc.StopAll()
+	return a.svc.GetServices(), err
+}
 
 // Scan re-runs auto-detection and rebuilds the service list.
-func (a *App) Scan() error { return a.svc.Scan() }
+func (a *App) Scan() ([]service.Service, error) {
+	err := a.svc.Scan()
+	return a.svc.GetServices(), err
+}
 
 // FreeVRAM unloads all models from the local Ollama instance (frees GPU memory
 // without stopping the daemon) and returns how many models were evicted.

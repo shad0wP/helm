@@ -3,7 +3,7 @@
     "allowJs": true,
 
     "noEmit": true,
-    "skipLibCheck": true,
+    "skipLibCheck": false,
 
     "module": "ESNext",
     "moduleResolution": "bundler",
@@ -20,7 +20,9 @@
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": false,
-    "noImplicitAny": false,
+    "noImplicitAny": true,
+		"noUncheckedIndexedAccess": true,
+		"exactOptionalPropertyTypes": true,
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true,
   },

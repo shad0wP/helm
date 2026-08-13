@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -27,6 +28,11 @@ const DefaultReleasesURL = "https://api.github.com/repos/shad0wP/helm/releases/l
 
 // httpTimeout bounds every network call (mirrors the service package's pattern).
 const httpTimeout = 10 * time.Second
+
+const (
+	maxMetadataBytes = 1 << 20
+	maxUpdateBytes   = 500 << 20
+)
 
 // Info is the result of an update check, shaped for the frontend.
 type Info struct {
@@ -94,8 +100,44 @@ func compareVersions(a, b string) int {
 	case pa != "" && pb == "":
 		return -1
 	default:
-		return strings.Compare(pa, pb)
+		return comparePrerelease(pa, pb)
 	}
+}
+
+func comparePrerelease(a, b string) int {
+	ap, bp := strings.Split(a, "."), strings.Split(b, ".")
+	limit := len(ap)
+	if len(bp) > limit {
+		limit = len(bp)
+	}
+	for i := 0; i < limit; i++ {
+		if i >= len(ap) {
+			return -1
+		}
+		if i >= len(bp) {
+			return 1
+		}
+		ai, aerr := strconv.ParseUint(ap[i], 10, 64)
+		bi, berr := strconv.ParseUint(bp[i], 10, 64)
+		switch {
+		case aerr == nil && berr == nil:
+			if ai < bi {
+				return -1
+			}
+			if ai > bi {
+				return 1
+			}
+		case aerr == nil && berr != nil:
+			return -1
+		case aerr != nil && berr == nil:
+			return 1
+		default:
+			if order := strings.Compare(ap[i], bp[i]); order != 0 {
+				return order
+			}
+		}
+	}
+	return 0
 }
 
 // parseRelease decodes a GitHub release JSON payload. Pure; unit-tested.
@@ -202,7 +244,7 @@ func Check(ctx context.Context, url, currentVersion string) (Info, error) {
 		return info, fmt.Errorf("update server returned %s", resp.Status)
 	}
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	body, err := readLimited(resp.Body, maxMetadataBytes)
 	if err != nil {
 		return info, err
 	}
@@ -256,8 +298,6 @@ func Download(ctx context.Context, assetURL, checksumsURL, destDir string) (stri
 	if name == "" || name == "." || name == "/" {
 		return "", fmt.Errorf("cannot derive a filename from %q", assetURL)
 	}
-	dest := filepath.Join(destDir, name)
-
 	// Fetch checksums first so we fail fast if verification is impossible.
 	sums, err := fetch(ctx, checksumsURL)
 	if err != nil {
@@ -283,6 +323,9 @@ func Download(ctx context.Context, assetURL, checksumsURL, destDir string) (stri
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("downloading %s: %s", name, resp.Status)
 	}
+	if resp.ContentLength > maxUpdateBytes {
+		return "", fmt.Errorf("update %s exceeds the %d MiB size limit", name, maxUpdateBytes>>20)
+	}
 
 	f, err := os.CreateTemp(destDir, name+".part-*")
 	if err != nil {
@@ -290,23 +333,70 @@ func Download(ctx context.Context, assetURL, checksumsURL, destDir string) (stri
 	}
 	tmp := f.Name()
 	h := sha256.New()
-	if _, err := io.Copy(io.MultiWriter(f, h), resp.Body); err != nil {
+	written, err := io.CopyN(io.MultiWriter(f, h), resp.Body, maxUpdateBytes+1)
+	if err != nil && !errors.Is(err, io.EOF) {
 		f.Close()
 		os.Remove(tmp)
 		return "", err
 	}
-	f.Close()
+	if written > maxUpdateBytes {
+		f.Close()
+		os.Remove(tmp)
+		return "", fmt.Errorf("update %s exceeds the %d MiB size limit", name, maxUpdateBytes>>20)
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		os.Remove(tmp)
+		return "", err
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(tmp)
+		return "", err
+	}
 
 	got := hex.EncodeToString(h.Sum(nil))
 	if got != want {
 		os.Remove(tmp)
 		return "", fmt.Errorf("checksum mismatch for %s: got %s, want %s", name, got, want)
 	}
-	if err := os.Rename(tmp, dest); err != nil {
-		os.Remove(tmp)
+	dest, err := linkWithoutOverwrite(tmp, destDir, name)
+	os.Remove(tmp)
+	if err != nil {
 		return "", err
 	}
 	return dest, nil
+}
+
+// linkWithoutOverwrite publishes a verified temporary file without replacing
+// an existing download. Temp files live in destDir, so hard-link creation is
+// atomic and remains on one filesystem on supported targets.
+func linkWithoutOverwrite(tmp, destDir, name string) (string, error) {
+	for i := 0; i < 1000; i++ {
+		candidate := filepath.Join(destDir, name)
+		if i > 0 {
+			candidate = filepath.Join(destDir, fmt.Sprintf("%s.%d", name, i))
+		}
+		err := os.Link(tmp, candidate)
+		if err == nil {
+			return candidate, nil
+		}
+		if errors.Is(err, os.ErrExist) {
+			continue
+		}
+		return "", err
+	}
+	return "", fmt.Errorf("could not choose an unused destination for %s", name)
+}
+
+func readLimited(r io.Reader, limit int64) ([]byte, error) {
+	data, err := io.ReadAll(io.LimitReader(r, limit+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > limit {
+		return nil, fmt.Errorf("response exceeds %d-byte limit", limit)
+	}
+	return data, nil
 }
 
 func fetch(ctx context.Context, url string) ([]byte, error) {
@@ -325,5 +415,5 @@ func fetch(ctx context.Context, url string) ([]byte, error) {
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("GET %s: %s", url, resp.Status)
 	}
-	return io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	return readLimited(resp.Body, maxMetadataBytes)
 }

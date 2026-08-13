@@ -3,30 +3,32 @@
 [![Release](https://img.shields.io/github/v/release/shad0wP/helm?sort=semver)](https://github.com/shad0wP/helm/releases/latest)
 
 A native menu bar / system tray app for **macOS** and **Linux** (KDE / Arch) that
-controls your local AI stack. Click the tray icon and a frameless popover slides open, listing
-every detected local AI service. Flip a toggle to start or stop a
-service; the tray icon turns **green** (all running), **amber** (some running), or **grey**
-(all stopped) in real time.
+controls your local AI stack. On macOS, clicking the menu-bar icon opens an anchored popover;
+on Linux, KDE renders a native StatusNotifierItem menu at the cursor and **Show Helm…** opens a
+normal movable window. Toggle systemd, Docker, and running local-inference processes while the
+tray icon reports aggregate state in real time.
 
 Built with [Wails v3](https://v3.wails.io) — Go backend, vanilla HTML/CSS/JS frontend, zero
 third-party Go dependencies beyond Wails itself.
 
 ## Screenshot
 
-> _Screenshot placeholder — click the tray icon to reveal the 300×540 popover._
+> _Screenshot placeholder — macOS uses the compact popover; Linux uses a native tray menu and
+> an optional decorated window._
 >
 > ```
 > ┌──────────────────────────────┐
 > │ ⎈ Helm        [Start][Stop]   │
-> │ ● 2 of 4 running              │
+> │ ● 2 of 5 running              │
 > ├──────────────────────────────┤
 > │ SERVICES                      │
 > │ 🖥  Ollama          [ ●——]     │
 > │ ▦  Open WebUI       [——● ]     │
 > │ 🔍 SearXNG          [ ●——]     │
-> │ 🤖 Hermes Agent     [——● ]🔒   │
+> │ 🤖 Hermes Agent     [ ●——]     │
+> │ 🐾 OpenClaw         [——● ]     │
 > │ ── AUTO-DETECTED ──           │
-> │ 🐍 Jupyter          [——● ]🔒   │
+> │ 🐍 Jupyter          [——● ]     │
 > ├──────────────────────────────┤
 > │ ◎ Scan for services        ✕  │
 > └──────────────────────────────┘
@@ -110,7 +112,7 @@ shasum -a 256 -c SHA256SUMS-macos.txt  # macOS
 Install the Wails v3 CLI, then the platform build dependencies:
 
 ```bash
-go install github.com/wailsapp/wails/v3/cmd/wails3@latest
+go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-alpha2.106
 ```
 
 ```bash
@@ -158,7 +160,7 @@ package and macOS tarball — same service engine, same defaults, same
 scripts, ssh sessions, and keybindings:
 
 ```
-helm-cli               # toggle: stop everything if anything runs, start everything if not
+helm-cli               # toggle: stop if a startable service runs; otherwise start the stack
 helm-cli on | off      # explicit start/stop of every controllable service
 helm-cli status        # per-service state, aggregate state, VRAM in use
 helm-cli free-vram     # evict all loaded Ollama models without stopping the daemon
@@ -180,8 +182,8 @@ sudo helm-cli setup-polkit
 ```
 
 This installs `/etc/polkit-1/rules.d/99-helm.rules`, a deliberately narrow rule: only the
-`org.freedesktop.systemd1.manage-units` action, only the `wheel` group, only the units in
-your config, only `start`/`stop`/`restart`. The Linux packages install it automatically for
+`org.freedesktop.systemd1.manage-units` action, only the standard `wheel` or `sudo`
+administrator groups, only the units in your config, and only `start`/`stop`/`restart`. The Linux packages install it automatically for
 the default services; re-run the command after editing `services.json`. Removing the package
 removes the rule.
 
@@ -223,8 +225,9 @@ actually listen on.
 
 ## Auto-detected ports
 
-Click **Scan for services** to probe these additional ports. Any that respond are listed,
-read-only, under **Auto-detected** (you can't toggle a process Helm didn't start):
+Click **Scan for services** to probe these additional ports. Any listener that can be attributed
+to a local process is listed under **Auto-detected** and can be stopped. Helm intentionally cannot
+restart an unmanaged process because it does not know the original launch command.
 
 | Port  | Service           | Icon           | Color  |
 |-------|-------------------|----------------|--------|
@@ -275,19 +278,19 @@ The update source is `https://api.github.com/repos/shad0wP/helm/releases/latest`
 **public**, so that's a plain unauthenticated GET; no token is ever embedded in the distributed
 binary.
 
-Self-update is channel-aware and conservative: package-manager installs (`/usr/bin`, …) and the
-macOS `.app` are **never overwritten** — Helm downloads the verified asset to `~/Downloads` and
-you install it yourself. In-place swap is only offered for AppImage / standalone-binary installs.
+Updates are conservative: package-manager installs and the macOS `.app` are **never overwritten**.
+Helm downloads the verified asset to `~/Downloads`; installation remains an explicit user action.
 
 ## How it works
 
 - **Detection:** `systemctl is-active <unit>` (Linux), `docker inspect` container status, or a
-  300 ms TCP dial to `127.0.0.1:<port>`. External commands run with a bounded timeout so an
+  300 ms TCP dial to both `127.0.0.1:<port>` and `[::1]:<port>`. External commands run with a bounded timeout so an
   unresponsive daemon can never stall the app.
-- **Polling:** every service is re-checked every **5 seconds**; the tray icon and popover only
+- **Polling:** every service is re-checked every **5 seconds**; the tray icon and UI only
   redraw when something actually changed.
-- **Control:** `sudo systemctl start|stop` (Linux units) or `docker start|stop` (containers).
-  Port-detected services are read-only and show _"Cannot control — started externally."_
+- **Control:** polkit-governed `systemctl` with a non-interactive sudo fallback, Docker
+  `start|stop`, or supervisor-aware process termination. Raw processes are stop-only; pure port
+  probes remain read-only.
 
 ## Changelog
 

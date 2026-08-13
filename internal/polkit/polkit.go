@@ -1,5 +1,5 @@
 // Package polkit generates and installs the polkit rule that lets
-// wheel-group users manage Helm's systemd system units without a password.
+// administrative-group users manage Helm's systemd system units without a password.
 // This is the polished alternative to the README's NOPASSWD sudoers setup:
 // the service engine tries plain (polkit-governed) systemctl first, so once
 // this rule is installed no sudo configuration is needed. Docker, port, and
@@ -48,7 +48,8 @@ func SystemUnits(services []service.Service) []string {
 
 // GenerateRule renders the JavaScript polkit rule for the given units. The
 // rule is deliberately narrow: only the org.freedesktop.systemd1.manage-units
-// action, only the wheel group, only the listed units, and only
+// action, only the standard wheel/sudo administrator groups, only the listed
+// units, and only
 // start/stop/restart verbs.
 func GenerateRule(units []string) string {
 	quoted := make([]string, 0, len(units))
@@ -59,7 +60,7 @@ func GenerateRule(units []string) string {
 // services with: sudo helm-cli setup-polkit
 polkit.addRule(function(action, subject) {
     if (action.id == "org.freedesktop.systemd1.manage-units" &&
-        subject.isInGroup("wheel")) {
+        (subject.isInGroup("wheel") || subject.isInGroup("sudo"))) {
         var unit = action.lookup("unit");
         var verb = action.lookup("verb");
         var allowedUnits = [%s];

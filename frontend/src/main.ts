@@ -8,6 +8,44 @@ import { Events } from "@wailsio/runtime";
 
 let currentServices: Service[] = [];
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isService(value: unknown): value is Service {
+  return (
+    isRecord(value) &&
+    typeof value.ID === "string" &&
+    typeof value.Name === "string" &&
+    typeof value.Kind === "string" &&
+    typeof value.Unit === "string" &&
+    typeof value.Container === "string" &&
+    typeof value.Port === "number" &&
+    typeof value.Running === "boolean" &&
+    typeof value.Icon === "string" &&
+    typeof value.Color === "string" &&
+    typeof value.Meta === "string" &&
+    typeof value.Auto === "boolean"
+  );
+}
+
+function serviceSnapshot(value: unknown): Service[] | null {
+  return Array.isArray(value) && value.every(isService) ? value : null;
+}
+
+function isUpdateInfo(value: unknown): value is UpdateInfo {
+  return (
+    isRecord(value) &&
+    typeof value.currentVersion === "string" &&
+    typeof value.latestVersion === "string" &&
+    typeof value.updateAvailable === "boolean" &&
+    typeof value.releaseURL === "string" &&
+    typeof value.releaseNotes === "string" &&
+    typeof value.assetURL === "string" &&
+    typeof value.checksumsURL === "string"
+  );
+}
+
 // byId returns a required element typed as T, throwing if the markup is missing it.
 function byId<T extends HTMLElement = HTMLElement>(id: string): T {
   const node = document.getElementById(id);
@@ -61,13 +99,22 @@ async function init(): Promise<void> {
 
   // Backend pushes a fresh snapshot after every poll cycle that changes state.
   Events.On("services-updated", (ev): void => {
-    currentServices = (ev.data as Service[] | null) ?? [];
-    render(currentServices);
+    const snapshot = serviceSnapshot(ev.data);
+    if (snapshot === null) {
+      console.error("Helm: rejected malformed services-updated event", ev.data);
+      return;
+    }
+    currentServices = snapshot;
+    render(snapshot);
   });
 
   // Background update checker pushes this when a newer release is found.
   Events.On("update-available", (ev): void => {
-    showUpdateBanner(ev.data as UpdateInfo);
+    if (!isUpdateInfo(ev.data)) {
+      console.error("Helm: rejected malformed update-available event", ev.data);
+      return;
+    }
+    showUpdateBanner(ev.data);
   });
 }
 
@@ -135,7 +182,7 @@ function wireUpdateControls(): void {
 function render(services: Service[]): void {
   updateGlobalStatus(services);
   const list = byId("services-list");
-  list.innerHTML = "";
+  list.replaceChildren();
 
   const known: Service[] = services.filter((s: Service) => !s.Auto);
   const auto: Service[] = services.filter((s: Service) => s.Auto);
@@ -189,12 +236,19 @@ function buildRow(svc: Service): HTMLDivElement {
   meta.textContent = svc.Meta || portLabel(svc);
   info.append(name, meta);
 
-  // Only pure KindPort probes are read-only. KindProcess is stoppable (via
-  // PID/supervisor resolution), so its toggle is live.
-  const readonly: boolean = svc.Kind === ServiceKind.KindPort;
+  // Raw processes are stop-only: Helm can signal a running process but cannot
+  // reconstruct the command needed to launch a stopped one.
+  const readonly: boolean =
+    svc.Kind === ServiceKind.KindPort ||
+    (svc.Kind === ServiceKind.KindProcess && !svc.Running);
   const toggle = document.createElement("label");
   toggle.className = "toggle" + (readonly ? " readonly" : "");
-  toggle.title = readonly ? "Read-only — declare it in ~/.config/helm/services.json to control it" : "";
+  toggle.title =
+    svc.Kind === ServiceKind.KindProcess && !svc.Running
+      ? "Cannot start — launch this service externally"
+      : readonly
+      ? "Read-only — declare it in ~/.config/helm/services.json to control it"
+      : "";
 
   const input = document.createElement("input");
   input.type = "checkbox";
@@ -250,23 +304,29 @@ function updateGlobalStatus(services: Service[]): void {
 
 async function toggleService(id: string, name: string, checkbox: HTMLInputElement): Promise<void> {
   const wanted = checkbox.checked;
+  checkbox.disabled = true;
   try {
-    await App.Toggle(id);
+    currentServices = (await App.Toggle(id)) ?? [];
+    render(currentServices);
   } catch (err: unknown) {
     // Revert the optimistic toggle AND surface the real failure — a silently
     // reverted checkbox otherwise looks like "nothing happened".
     checkbox.checked = !wanted;
     showToast(`${name}: ${errText(err)}`, "error");
     console.error("Toggle failed:", err);
+  } finally {
+    checkbox.disabled = false;
   }
 }
 
 function wireControls(): void {
-  byId<HTMLButtonElement>("btn-start-all").addEventListener("click", () => {
-    App.StartAll().catch((err: unknown) => showToast(`Start all: ${errText(err)}`, "error"));
+  const startAll = byId<HTMLButtonElement>("btn-start-all");
+  startAll.addEventListener("click", () => {
+    void runBulkAction(startAll, "Start all", App.StartAll);
   });
-  byId<HTMLButtonElement>("btn-stop-all").addEventListener("click", () => {
-    App.StopAll().catch((err: unknown) => showToast(`Stop all: ${errText(err)}`, "error"));
+  const stopAll = byId<HTMLButtonElement>("btn-stop-all");
+  stopAll.addEventListener("click", () => {
+    void runBulkAction(stopAll, "Stop all", App.StopAll);
   });
   byId<HTMLButtonElement>("btn-close").addEventListener("click", () => {
     App.HideWindow().catch((err: unknown) => console.error("Hide failed:", err));
@@ -288,17 +348,40 @@ function wireControls(): void {
   const scanBtn = byId<HTMLButtonElement>("btn-scan");
   scanBtn.addEventListener("click", async (): Promise<void> => {
     scanBtn.disabled = true;
-    scanBtn.innerHTML =
-      '<i class="ti ti-loader-2 ti-spin" aria-hidden="true"></i> Scanning…';
+    setButtonContent(scanBtn, "ti-loader-2 ti-spin", "Scanning…");
     try {
-      await App.Scan();
+      currentServices = (await App.Scan()) ?? [];
+      render(currentServices);
     } catch (err: unknown) {
       console.error("Scan failed:", err);
     }
     scanBtn.disabled = false;
-    scanBtn.innerHTML =
-      '<i class="ti ti-radar" aria-hidden="true"></i> Scan for services';
+    setButtonContent(scanBtn, "ti-radar", "Scan for services");
   });
+}
+
+async function runBulkAction(
+  button: HTMLButtonElement,
+  label: string,
+  action: () => Promise<Service[] | null>,
+): Promise<void> {
+  button.disabled = true;
+  try {
+    currentServices = (await action()) ?? [];
+    render(currentServices);
+  } catch (err: unknown) {
+    showToast(`${label}: ${errText(err)}`, "error");
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function setButtonContent(button: HTMLButtonElement, iconClass: string, text: string): void {
+  button.replaceChildren();
+  const icon = document.createElement("i");
+  icon.className = `ti ${iconClass}`;
+  icon.setAttribute("aria-hidden", "true");
+  button.append(icon, document.createTextNode(` ${text}`));
 }
 
 init().catch((err: unknown) => console.error("Helm init failed:", err));

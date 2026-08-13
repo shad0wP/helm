@@ -1,11 +1,17 @@
 package service
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 )
+
+var serviceIDPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
 
 // User-declared services. Format choice: JSON via encoding/json — TOML would
 // require a third-party module, and the project's rule is zero Go deps beyond
@@ -64,13 +70,32 @@ func userConfigPath() string {
 // Pure function; unit-tested.
 func parseUserConfig(raw []byte) ([]Service, error) {
 	var cfg userConfig
-	if err := json.Unmarshal(raw, &cfg); err != nil {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&cfg); err != nil {
 		return nil, fmt.Errorf("parsing services.json: %w", err)
 	}
+	if err := dec.Decode(&struct{}{}); err != io.EOF {
+		if err == nil {
+			return nil, fmt.Errorf("parsing services.json: multiple JSON values")
+		}
+		return nil, fmt.Errorf("parsing services.json: trailing content: %w", err)
+	}
 	out := make([]Service, 0, len(cfg.Services))
+	seen := make(map[string]struct{}, len(cfg.Services))
 	for i, us := range cfg.Services {
 		if us.ID == "" || us.Name == "" {
 			return nil, fmt.Errorf("services[%d]: id and name are required", i)
+		}
+		if !serviceIDPattern.MatchString(us.ID) {
+			return nil, fmt.Errorf("services[%d]: id %q must contain only lowercase letters, digits, '_' or '-'", i, us.ID)
+		}
+		if _, exists := seen[us.ID]; exists {
+			return nil, fmt.Errorf("services[%d]: duplicate id %q", i, us.ID)
+		}
+		seen[us.ID] = struct{}{}
+		if strings.HasPrefix(us.Unit, "-") || strings.HasPrefix(us.Container, "-") {
+			return nil, fmt.Errorf("services[%d] (%s): command target cannot begin with '-'", i, us.ID)
 		}
 		kind := ServiceKind(us.Kind)
 		switch kind {

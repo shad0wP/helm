@@ -72,6 +72,13 @@ func TestMenuModel(t *testing.T) {
 		}
 	})
 
+	t.Run("stopped processes are disabled because Helm has no launch command", func(t *testing.T) {
+		got := menuModel([]service.Service{{ID: "hermes", Name: "Hermes", Kind: service.KindProcess}})
+		if len(got) != 1 || got[0].Enabled || got[0].Label != "Hermes (start externally)" {
+			t.Fatalf("stopped process menu entry = %+v", got)
+		}
+	})
+
 	t.Run("order is preserved", func(t *testing.T) {
 		got := menuModel([]service.Service{
 			{ID: "a", Name: "A", Kind: service.KindDocker},

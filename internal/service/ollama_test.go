@@ -74,6 +74,16 @@ func TestFreeVRAM(t *testing.T) {
 		}
 	})
 
+	t.Run("oversized ps response is rejected", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write(make([]byte, maxOllamaResponseBytes+1))
+		}))
+		defer srv.Close()
+		if _, err := freeVRAM(srv.URL); err == nil {
+			t.Error("expected an error for an oversized /api/ps response")
+		}
+	})
+
 	t.Run("unload failure mid-batch surfaces the error", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch r.URL.Path {

@@ -385,6 +385,13 @@ func TestStopPollingIsSafeAndIdempotent(t *testing.T) {
 	m.StartPolling(10 * time.Millisecond)
 }
 
+func TestStartPollingRejectsNonPositiveInterval(t *testing.T) {
+	m := &ServiceManager{}
+	m.StartPolling(0)
+	m.StartPolling(-time.Second)
+	m.StopPolling()
+}
+
 // TestSystemctlAttemptsOrder pins the privilege chain for system units:
 // plain polkit-governed systemctl first, non-interactive sudo second — and
 // both must be non-interactive so a misconfigured host fails fast instead of
@@ -392,8 +399,8 @@ func TestStopPollingIsSafeAndIdempotent(t *testing.T) {
 func TestSystemctlAttemptsOrder(t *testing.T) {
 	got := systemctlAttempts("stop", "ollama")
 	want := [][]string{
-		{"systemctl", "--no-ask-password", "stop", "ollama"},
-		{"sudo", "-n", "systemctl", "stop", "ollama"},
+		{"systemctl", "--no-ask-password", "stop", "--", "ollama"},
+		{"sudo", "-n", "systemctl", "stop", "--", "ollama"},
 	}
 	if len(got) != len(want) {
 		t.Fatalf("attempts = %v, want %v", got, want)
@@ -401,6 +408,38 @@ func TestSystemctlAttemptsOrder(t *testing.T) {
 	for i := range want {
 		if strings.Join(got[i], " ") != strings.Join(want[i], " ") {
 			t.Errorf("attempt[%d] = %v, want %v", i, got[i], want[i])
+		}
+	}
+}
+
+func TestCapabilitiesAndStartAllSkipStoppedProcesses(t *testing.T) {
+	process := Service{ID: "terminal", Name: "Terminal server", Kind: KindProcess, Port: 1}
+	if CanStart(process) || CanStop(process) || CanToggle(process) {
+		t.Fatalf("stopped process unexpectedly controllable: %+v", process)
+	}
+	process.Running = true
+	if CanStart(process) || !CanStop(process) || !CanToggle(process) {
+		t.Fatalf("running process capabilities wrong: %+v", process)
+	}
+
+	m := &ServiceManager{services: []Service{process}}
+	process.Running = false
+	m.services[0] = process
+	if err := m.StartAll(); err != nil {
+		t.Fatalf("StartAll must skip stopped process-only services: %v", err)
+	}
+}
+
+func TestNewDeferredServiceManagerReturnsConfiguredSnapshot(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	m := NewDeferredServiceManager()
+	services := m.GetServices()
+	if len(services) != len(defaultServices()) {
+		t.Fatalf("deferred manager has %d services, want %d", len(services), len(defaultServices()))
+	}
+	for _, svc := range services {
+		if svc.Meta == "" {
+			t.Fatalf("deferred service lacks display metadata: %+v", svc)
 		}
 	}
 }

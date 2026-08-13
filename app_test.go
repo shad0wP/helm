@@ -21,7 +21,7 @@ func TestAppGetServicesAndToggleDelegate(t *testing.T) {
 		t.Errorf("App.GetServices() on an empty manager = %d, want 0", len(got))
 	}
 	// Toggle forwards to the manager, which rejects an unknown id.
-	if err := a.Toggle("missing"); err == nil {
+	if _, err := a.Toggle("missing"); err == nil {
 		t.Error("App.Toggle on an unknown id = nil, want error")
 	}
 }
@@ -41,13 +41,13 @@ func TestHideWindowWithoutWindowIsSafe(t *testing.T) {
 // empty manager, so no external command is ever run.
 func TestAppStartStopScanDelegate(t *testing.T) {
 	a := &App{svc: &service.ServiceManager{}}
-	if err := a.StartAll(); err != nil {
+	if _, err := a.StartAll(); err != nil {
 		t.Errorf("App.StartAll() = %v, want nil", err)
 	}
-	if err := a.StopAll(); err != nil {
+	if _, err := a.StopAll(); err != nil {
 		t.Errorf("App.StopAll() = %v, want nil", err)
 	}
-	if err := a.Scan(); err != nil {
+	if _, err := a.Scan(); err != nil {
 		t.Errorf("App.Scan() = %v, want nil", err)
 	}
 }

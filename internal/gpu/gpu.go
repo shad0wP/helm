@@ -4,15 +4,19 @@
 package gpu
 
 import (
+	"context"
 	"fmt"
 	"os/exec"
 	"strconv"
 	"strings"
+	"time"
 )
+
+const commandTimeout = 3 * time.Second
 
 // Runner abstracts subprocess execution and PATH lookup for tests.
 type Runner interface {
-	Output(name string, args ...string) (string, error)
+	Output(ctx context.Context, name string, args ...string) (string, error)
 	Available(name string) bool
 }
 
@@ -20,8 +24,8 @@ type Runner interface {
 type ExecRunner struct{}
 
 // Output runs the command and returns its stdout.
-func (ExecRunner) Output(name string, args ...string) (string, error) {
-	out, err := exec.Command(name, args...).Output()
+func (ExecRunner) Output(ctx context.Context, name string, args ...string) (string, error) {
+	out, err := exec.CommandContext(ctx, name, args...).Output()
 	return string(out), err
 }
 
@@ -44,7 +48,9 @@ func (g GPU) UsedMB() (used int, ok bool) {
 	if !g.R.Available("nvidia-smi") {
 		return 0, false
 	}
-	out, err := g.R.Output("nvidia-smi", "--query-gpu=memory.used", "--format=csv,noheader,nounits")
+	ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
+	defer cancel()
+	out, err := g.R.Output(ctx, "nvidia-smi", "--query-gpu=memory.used", "--format=csv,noheader,nounits")
 	if err != nil {
 		return 0, false
 	}

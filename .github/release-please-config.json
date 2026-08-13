@@ -4,7 +4,13 @@
     ".": {
       "release-type": "simple",
       "bump-minor-pre-major": true,
-      "changelog-path": "CHANGELOG.md"
+      "changelog-path": "CHANGELOG.md",
+      "extra-files": [
+        "build/config.yml",
+        "build/linux/nfpm/nfpm.yaml",
+        "build/darwin/Info.plist",
+        "build/darwin/Info.dev.plist"
+      ]
     }
   }
 }

@@ -39,10 +39,14 @@ type menuEntry struct {
 func menuModel(services []service.Service) []menuEntry {
 	entries := make([]menuEntry, 0, len(services))
 	for _, s := range services {
-		enabled := s.Kind != service.KindPort
+		enabled := service.CanToggle(s)
 		label := s.Name
 		if !enabled {
-			label += " (read-only)"
+			if s.Kind == service.KindProcess && !s.Running {
+				label += " (start externally)"
+			} else {
+				label += " (read-only)"
+			}
 		}
 		entries = append(entries, menuEntry{
 			ID:      s.ID,

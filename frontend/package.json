@@ -6,15 +6,16 @@
   "scripts": {
     "dev": "vite",
     "build:dev": "vite build --minify false --mode development",
-    "build": "vite build --mode production",
+    "check": "tsc --noEmit",
+    "build": "npm run check && vite build --mode production",
     "preview": "vite preview"
   },
   "dependencies": {
-    "@tabler/icons-webfont": "^3.44.0",
-    "@wailsio/runtime": "latest"
+    "@tabler/icons-webfont": "3.46.0",
+    "@wailsio/runtime": "3.0.0-alpha.94"
   },
   "devDependencies": {
-    "typescript": "^6.0.3",
-    "vite": "^8.0.5"
+    "typescript": "6.0.3",
+    "vite": "8.2.1"
   }
 }
